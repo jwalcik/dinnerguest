@@ -7,7 +7,19 @@ tools and on-hand recommendation capabilities for the ADK CLI and Web UI (`adk w
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Load .env file from active directory or repo root if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    # Also check repo root
+    root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    if root_env.exists():
+        load_dotenv(root_env)
+except ImportError:
+    pass
 
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.pantry_search_tool import PantrySearchTool
