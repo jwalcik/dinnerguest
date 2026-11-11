@@ -143,5 +143,94 @@
       "Grill on high heat for 4 minutes per side.",
       "Top with cheddar cheese during the last minute of cooking, serve on toasted brioche buns."
     ]
+  },
+  {
+    "id": "recipe_007",
+    "title": "Skillet Beef Tacos",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 15,
+    "tags": ["quick", "mexican", "beef", "dinner"],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "1 tbsp chili powder",
+      "1 tsp ground cumin",
+      "0.5 tsp garlic powder",
+      "0.5 tsp salt",
+      "8 small corn tortillas",
+      "2 medium tomatoes, diced"
+    ],
+    "instructions": [
+      "Brown ground beef and diced onion in a skillet over medium heat.",
+      "Stir in chili powder, cumin, garlic powder, and salt with 1/4 cup water.",
+      "Simmer until liquid reduces. Serve inside warmed corn tortillas topped with diced tomatoes."
+    ]
+  },
+  {
+    "id": "recipe_008",
+    "title": "Hearty Beef Bolognese Pasta",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 45,
+    "tags": ["cozy", "italian", "beef", "pasta"],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "3 medium tomatoes, crushed",
+      "12 oz dry pasta",
+      "2 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat olive oil in a Dutch oven, brown ground beef with onion and garlic.",
+      "Add crushed tomatoes, salt, and pepper; simmer on low for 40 minutes.",
+      "Boil dry pasta in salted water until al dente, drain and toss with bolognese sauce."
+    ]
+  },
+  {
+    "id": "recipe_009",
+    "title": "Savory Beef and Shallot Stir-Fry",
+    "servings": 3,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 10,
+    "tags": ["quick", "asian", "beef", "stir fry"],
+    "ingredients": [
+      "1 lb ground beef",
+      "2 shallots, thinly sliced",
+      "2 cloves garlic, minced",
+      "2 tbsp soy sauce",
+      "1 tbsp sesame oil",
+      "1 tsp sugar"
+    ],
+    "instructions": [
+      "Heat wok over high heat, brown ground beef.",
+      "Add shallots and garlic, stir-frying for 2 minutes.",
+      "Toss with soy sauce, sesame oil, and sugar for 1 minute before removing from heat."
+    ]
+  },
+  {
+    "id": "recipe_010",
+    "title": "Rustic Beef & Onion Stuffed Peppers",
+    "servings": 4,
+    "prep_time_minutes": 20,
+    "cook_time_minutes": 35,
+    "tags": ["beef", "dinner", "cozy"],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "2 medium tomatoes, diced",
+      "4 bell peppers, halved",
+      "1 cup cooked rice",
+      "1 tsp dried oregano",
+      "1 tsp salt"
+    ],
+    "instructions": [
+      "Brown beef and onion in a skillet. Stir in tomatoes, oregano, salt, and cooked rice.",
+      "Stuff mixture into halved bell peppers.",
+      "Bake at 375 degrees F for 30 minutes until peppers are tender."
+    ]
   }
 ]
