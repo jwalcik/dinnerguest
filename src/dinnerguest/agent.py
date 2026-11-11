@@ -28,12 +28,14 @@ if "GOOGLE_CLOUD_LOCATION" not in os.environ:
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.pantry_search_tool import PantrySearchTool
 from dinnerguest.tools.scaler_tool import RecipeScaler
+from dinnerguest.tools.vibe_search_tool import VibeSearchTool
 
 
 # Initialize tool instances
 _allergen_checker = AllergenChecker()
 _pantry_search_tool = PantrySearchTool(allergen_checker=_allergen_checker)
 _recipe_scaler = RecipeScaler()
+_vibe_tool = VibeSearchTool(allergen_checker=_allergen_checker)
 
 
 def find_recipes_by_on_hand_ingredients(
@@ -112,24 +114,65 @@ def scale_recipe_servings(
     return result.to_dict()
 
 
+def search_recipes_by_vibe(
+    vibe_or_craving: str,
+    flavor_profile: Optional[str] = None,
+    format: Optional[str] = None,
+    protein: Optional[str] = None,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Searches recipes based on mood, vibe, season, weather, or specific flavor cravings.
+
+    Args:
+        vibe_or_craving: Description of the craving or mood (e.g. "spicy pork", "cozy cold weather", "sweet dessert").
+        flavor_profile: Optional flavor profile filter ("savory", "sweet").
+        format: Optional dish format filter ("noodle", "taco", "skillet", "cookies", "crisp").
+        protein: Optional protein filter ("pork", "beef", "chicken").
+        limit: Max number of recipes to return (default 5).
+
+    Returns:
+        List of matching recipes with tags, matched vibes, instructions, and allergen screening.
+    """
+    filters = {}
+    if flavor_profile:
+        filters["flavor_profile"] = flavor_profile
+    if format:
+        filters["format"] = format
+    if protein:
+        filters["protein"] = protein
+
+    results = _vibe_tool.search_by_vibe(vibe_or_craving, filters=filters, limit=limit)
+    return [r.to_dict() for r in results]
+
+
 # ADK Agent Definition
 DINNERGUEST_INSTRUCTION = """
 You are Dinnerguest, an expert culinary orchestration assistant designed to facilitate meal and party planning.
 
 Your primary responsibilities include:
-1. Recommending recipes based on ingredients the user has on hand:
+1. Recommending recipes based on mood, vibe, cravings, or weather:
+   - When a user asks for a recommendation based on mood or flavor (e.g., "I would like a spicy pork dish" or "What's something cozy I can cook?"):
+   - Ask clarifying follow-up questions to help narrow down choices:
+     - For spicy pork: ask whether they would prefer a spicy taco recipe or a noodle dish.
+     - For cozy / cold weather: ask whether they would like something savory or sweet.
+   - Rule: Ask no more than five clarifying questions. Keep questions friendly, direct, and limited.
+   - Call `search_recipes_by_vibe` once the user's preferences are clear or after narrowing down.
+   - If unable to identify a specific recommendation within five questions, apologize politely for not being able to find a good option and ask the user to provide more details in their request.
+   - For every recommended recipe, communicate the allergen notice clearly.
+
+2. Recommending recipes based on ingredients the user has on hand:
    - Call the `find_recipes_by_on_hand_ingredients` tool to find matching recipes.
    - Consider and explain common ingredient substitutions (such as using an onion in place of shallots or scallions).
    - If a recipe is missing 1 or 2 pantry staples, ask polite follow-up questions (e.g., "Do you happen to have any dry pasta on hand?").
    - Rule: Never provide more than 5 recipe suggestions at a time. If there are more than 5 matching recipes, present the top 5, clearly inform the user that there are a total of N recipes that match their request, and ask if they would like to explore the other options.
    - For every recommended recipe, communicate the allergen notice clearly so guests remain safe.
 
-2. Recipe Scaling:
+3. Recipe Scaling:
    - When a user asks to scale a recipe up or down (e.g., "This recipe serves 4, help me scale it to 12"), call `scale_recipe_servings`.
    - If the tool returns a warning that an ingredient drops below 1/8 tsp, advise the user that scaling down that far is difficult to measure and suggest the recommended minimum yield.
    - If the tool returns a bulk warning (over 15 lbs or over 1 gallon), inform the user that they will need large preparation vessels or should cook the recipe in batches.
 
-3. Allergen Checks:
+4. Allergen Checks:
    - When asked about allergens in recipes or for a party, call `check_allergens_for_ingredients`.
    - Never guess or speculate on allergens without running the deterministic tool.
    - Relay any ambiguous ingredients (such as "natural flavors" or "spice blend") to the user as items requiring label verification.
@@ -161,6 +204,7 @@ root_agent = Agent(
     instruction=DINNERGUEST_INSTRUCTION,
     tools=[
         find_recipes_by_on_hand_ingredients,
+        search_recipes_by_vibe,
         check_allergens_for_ingredients,
         scale_recipe_servings,
     ],

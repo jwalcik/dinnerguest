@@ -1,0 +1,94 @@
+{
+  "version": "1.0.0",
+  "vibe_categories": {
+    "cozy": {
+      "display_name": "Cozy & Comforting",
+      "synonyms": [
+        "cozy",
+        "comfort",
+        "comforting",
+        "cold",
+        "winter",
+        "chilly",
+        "autumn",
+        "fall",
+        "warming",
+        "hearty",
+        "rainy",
+        "soothing"
+      ],
+      "clarifying_dimension": "flavor_profile",
+      "clarifying_question": "Would you like something savory or sweet?",
+      "options": ["savory", "sweet"]
+    },
+    "spicy": {
+      "display_name": "Spicy & Zesty",
+      "synonyms": [
+        "spicy",
+        "hot",
+        "fiery",
+        "chili",
+        "zesty",
+        "kick",
+        "heat",
+        "bold"
+      ],
+      "protein_branching": {
+        "pork": {
+          "clarifying_question": "Would you prefer a spicy taco recipe or a noodle dish?",
+          "options": ["taco", "noodle"]
+        },
+        "beef": {
+          "clarifying_question": "Would you prefer spicy beef tacos or a hearty chili/skillet?",
+          "options": ["taco", "skillet"]
+        }
+      }
+    },
+    "quick": {
+      "display_name": "Quick & Easy",
+      "synonyms": [
+        "quick",
+        "fast",
+        "easy",
+        "weeknight",
+        "simple",
+        "speedy",
+        "under 30 minutes"
+      ],
+      "clarifying_dimension": "cooking_style",
+      "clarifying_question": "Are you looking for a quick stovetop skillet dish or something baked?",
+      "options": ["stovetop", "baked"]
+    },
+    "sweet": {
+      "display_name": "Sweet & Indulgent",
+      "synonyms": [
+        "sweet",
+        "dessert",
+        "treat",
+        "baking",
+        "cookies",
+        "crisp",
+        "pastry",
+        "sugary"
+      ],
+      "clarifying_dimension": "dessert_type",
+      "clarifying_question": "Would you prefer fresh baked cookies or a warm fruit dessert?",
+      "options": ["cookies", "fruit crisp"]
+    },
+    "fresh": {
+      "display_name": "Fresh & Light",
+      "synonyms": [
+        "fresh",
+        "light",
+        "crisp",
+        "healthy",
+        "summer",
+        "herbaceous",
+        "clean"
+      ],
+      "clarifying_dimension": "format",
+      "clarifying_question": "Would you prefer a vibrant herbaceous pasta/sauce or a lighter protein entree?",
+      "options": ["pasta", "entree"]
+    }
+  }
+}

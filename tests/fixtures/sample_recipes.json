@@ -232,5 +232,49 @@
       "Stuff mixture into halved bell peppers.",
       "Bake at 375 degrees F for 30 minutes until peppers are tender."
     ]
+  },
+  {
+    "id": "recipe_011",
+    "title": "Spicy Pork Carnitas Tacos",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": ["spicy", "pork", "tacos", "mexican", "dinner"],
+    "ingredients": [
+      "1.5 lbs pork shoulder, diced",
+      "1 tbsp chili powder",
+      "1 tsp ground cumin",
+      "1 tsp dried oregano",
+      "2 cloves garlic, minced",
+      "1 jalapeño, minced",
+      "8 warm corn tortillas",
+      "1 lime, cut into wedges"
+    ],
+    "instructions": [
+      "Season pork with chili powder, cumin, oregano, and garlic.",
+      "Sear in a skillet until browned, then simmer with jalapeño and 1/2 cup water until tender.",
+      "Crisp the shredded pork over high heat and serve in warm corn tortillas with lime."
+    ]
+  },
+  {
+    "id": "recipe_012",
+    "title": "Cozy Warm Apple Cinnamon Crisp",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 35,
+    "tags": ["cozy", "sweet", "dessert", "autumn", "comfort"],
+    "ingredients": [
+      "3 medium apples, sliced",
+      "0.5 cup granulated sugar",
+      "0.33 cup unsalted butter, softened",
+      "1 tsp ground cinnamon",
+      "0.5 cup rolled oats",
+      "0.25 cup all-purpose flour"
+    ],
+    "instructions": [
+      "Toss sliced apples with half of the cinnamon and sugar, place into a baking dish.",
+      "Combine butter, remaining sugar, oats, flour, and remaining cinnamon to form a crumbly topping.",
+      "Spread topping over apples and bake at 350 degrees F for 35 minutes until golden and bubbly."
+    ]
   }
 ]

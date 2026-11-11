@@ -6,6 +6,7 @@ from dinnerguest.agent import (
     find_recipes_by_on_hand_ingredients,
     root_agent,
     scale_recipe_servings,
+    search_recipes_by_vibe,
 )
 
 
@@ -13,7 +14,13 @@ class TestDinnerguestAgent(unittest.TestCase):
     def test_root_agent_metadata(self):
         self.assertEqual(root_agent.name, "Dinnerguest")
         self.assertIsNotNone(root_agent.instruction)
-        self.assertEqual(len(root_agent.tools), 3)
+        self.assertEqual(len(root_agent.tools), 4)
+
+    def test_search_recipes_by_vibe_tool(self):
+        result = search_recipes_by_vibe("spicy pork", format="noodle")
+        self.assertGreaterEqual(len(result), 1)
+        self.assertIn("Noodles", result[0]["title"])
+        self.assertIn("allergen_summary", result[0])
 
     def test_find_recipes_tool(self):
         result = find_recipes_by_on_hand_ingredients(

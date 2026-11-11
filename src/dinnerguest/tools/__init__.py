@@ -18,6 +18,10 @@ from dinnerguest.tools.scaler_tool import (
     ScaledRecipeResult,
     ScalingWarning,
 )
+from dinnerguest.tools.vibe_search_tool import (
+    VibeRecipeResult,
+    VibeSearchTool,
+)
 
 __all__ = [
     "AllergenChecker",
@@ -32,4 +36,6 @@ __all__ = [
     "ScaledIngredient",
     "ScaledRecipeResult",
     "ScalingWarning",
+    "VibeRecipeResult",
+    "VibeSearchTool",
 ]
