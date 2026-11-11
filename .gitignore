@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dinnerguest project specific
+data/raw/
+data/processed/
+*.duckdb
+*.sqlite
+*.sqlite3
+!tests/fixtures/*.json
+.adk/
+*.gcp.json
+credentials.json

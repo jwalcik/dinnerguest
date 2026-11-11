@@ -1,0 +1,147 @@
+[
+  {
+    "id": "recipe_001",
+    "title": "Classic Italian Meatballs",
+    "servings": 4,
+    "prep_time_minutes": 25,
+    "cook_time_minutes": 30,
+    "tags": ["comfort", "cozy", "italian", "dinner", "beef"],
+    "ingredients": [
+      "1 lb ground beef",
+      "0.5 cup breadcrumbs",
+      "1 large egg",
+      "0.25 cup grated parmesan cheese",
+      "2 cloves garlic, minced",
+      "0.25 cup chopped fresh parsley",
+      "1 tsp salt",
+      "0.5 tsp black pepper",
+      "2 cups marinara sauce"
+    ],
+    "instructions": [
+      "In a large bowl, combine ground beef, breadcrumbs, egg, parmesan, garlic, parsley, salt, and pepper.",
+      "Form mixture into 1.5-inch meatballs.",
+      "Brown meatballs in a skillet over medium-high heat for 6-8 minutes.",
+      "Add marinara sauce, reduce heat to low, cover, and simmer for 20 minutes."
+    ]
+  },
+  {
+    "id": "recipe_002",
+    "title": "Bakery Style Chocolate Chip Cookies",
+    "servings": 12,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 10,
+    "tags": ["sweet", "dessert", "baking", "cookies"],
+    "ingredients": [
+      "2.25 cups all-purpose flour",
+      "0.75 tsp baking soda",
+      "0.5 tsp salt",
+      "1 cup unsalted butter, softened",
+      "0.75 cup brown sugar",
+      "0.5 cup granulated sugar",
+      "1 tsp vanilla extract",
+      "2 large eggs",
+      "2 cups semi-sweet chocolate chips"
+    ],
+    "instructions": [
+      "Preheat oven to 375 degrees F.",
+      "Whisk flour, baking soda, and salt in a small bowl.",
+      "Beat butter, brown sugar, granulated sugar, and vanilla in a large bowl until creamy.",
+      "Add eggs one at a time, beating well after each addition.",
+      "Gradually blend in flour mixture, then fold in chocolate chips.",
+      "Drop rounded tablespoons onto ungreased baking sheets and bake for 9 to 11 minutes."
+    ]
+  },
+  {
+    "id": "recipe_003",
+    "title": "Spicy Dan Dan Pork Noodles",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": ["spicy", "pork", "noodles", "asian", "quick"],
+    "ingredients": [
+      "1 lb ground pork",
+      "8 oz wheat noodles",
+      "2 tbsp chili crisp oil",
+      "2 tbsp soy sauce",
+      "1 tbsp toasted sesame oil",
+      "1 tbsp tahini",
+      "2 cloves garlic, minced",
+      "3 scallions, chopped",
+      "1 cup chicken broth"
+    ],
+    "instructions": [
+      "Cook noodles according to package instructions, drain and set aside.",
+      "In a wok or skillet, brown ground pork with garlic over high heat.",
+      "Stir in chili crisp oil, soy sauce, sesame oil, and tahini.",
+      "Pour in chicken broth and simmer for 5 minutes.",
+      "Ladle sauce and pork over cooked noodles, garnish with sliced scallions."
+    ]
+  },
+  {
+    "id": "recipe_004",
+    "title": "Traditional Basil Pine Nut Pesto",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 0,
+    "tags": ["italian", "sauce", "pasta", "quick"],
+    "ingredients": [
+      "2 cups fresh basil leaves",
+      "0.33 cup pine nuts",
+      "0.5 cup grated parmesan cheese",
+      "3 cloves garlic",
+      "0.66 cup extra-virgin olive oil",
+      "0.25 tsp sea salt"
+    ],
+    "instructions": [
+      "Combine basil, pine nuts, and garlic in a food processor and pulse until coarsely chopped.",
+      "Slowly drizzle in olive oil while processor is running on low.",
+      "Transfer to a bowl and stir in grated parmesan and salt."
+    ]
+  },
+  {
+    "id": "recipe_005",
+    "title": "Homestyle Ground Beef & Tomato Skillet",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 20,
+    "tags": ["cozy", "quick", "beef", "comfort", "skillet"],
+    "ingredients": [
+      "1 lb ground beef",
+      "2 medium tomatoes, diced",
+      "1 medium yellow onion, diced",
+      "1 tsp dried oregano",
+      "1 tsp garlic powder",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat a large skillet over medium-high heat and brown the ground beef.",
+      "Add diced onion and cook until translucent, about 5 minutes.",
+      "Stir in diced tomatoes, oregano, garlic powder, salt, and pepper.",
+      "Simmer for 10-12 minutes until tomatoes break down into a thick sauce."
+    ]
+  },
+  {
+    "id": "recipe_006",
+    "title": "Classic Backyard Cheeseburgers",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 10,
+    "tags": ["party", "bbq", "beef", "grill", "burgers"],
+    "ingredients": [
+      "1.5 lbs 80/20 ground beef",
+      "1 tbsp worcestershire sauce",
+      "1 tsp garlic powder",
+      "1 tsp salt",
+      "0.5 tsp freshly cracked black pepper",
+      "4 brioche burger buns",
+      "4 slices cheddar cheese"
+    ],
+    "instructions": [
+      "Gently mix ground beef with worcestershire sauce, garlic powder, salt, and pepper.",
+      "Form into 4 equal patties with a slight depression in the center.",
+      "Grill on high heat for 4 minutes per side.",
+      "Top with cheddar cheese during the last minute of cooking, serve on toasted brioche buns."
+    ]
+  }
+]
