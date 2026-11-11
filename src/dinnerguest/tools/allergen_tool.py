@@ -61,6 +61,10 @@ class AllergenReport:
     def unique_allergen_names(self) -> List[str]:
         return sorted([matches[0].display_name for matches in self.detected_allergens.values()])
 
+    @property
+    def unique_allergens(self) -> List[str]:
+        return self.unique_allergen_names
+
     def is_safe_for(self, excluded_allergens: List[str]) -> bool:
         """Returns True if none of the excluded allergens are present in detected allergens."""
         excluded_set = {a.lower().strip() for a in excluded_allergens}

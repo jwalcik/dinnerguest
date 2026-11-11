@@ -25,8 +25,10 @@ except ImportError:
 if "GOOGLE_CLOUD_LOCATION" not in os.environ:
     os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 
+from dinnerguest.agents.menu_agent import MenuPlanningAgent
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.grocery_tool import GroceryListAggregatorTool
+from dinnerguest.tools.menu_store import EventMenuStore
 from dinnerguest.tools.pantry_search_tool import PantrySearchTool
 from dinnerguest.tools.scaler_tool import RecipeScaler
 from dinnerguest.tools.vibe_search_tool import VibeSearchTool
@@ -38,6 +40,13 @@ _pantry_search_tool = PantrySearchTool(allergen_checker=_allergen_checker)
 _recipe_scaler = RecipeScaler()
 _vibe_tool = VibeSearchTool(allergen_checker=_allergen_checker)
 _grocery_tool = GroceryListAggregatorTool()
+_menu_store = EventMenuStore(scaler=_recipe_scaler, allergen_checker=_allergen_checker)
+_menu_agent = MenuPlanningAgent(
+    menu_store=_menu_store,
+    scaler=_recipe_scaler,
+    allergen_checker=_allergen_checker,
+    grocery_tool=_grocery_tool,
+)
 
 
 def find_recipes_by_on_hand_ingredients(
@@ -171,6 +180,88 @@ def search_recipes_by_vibe(
     return [r.to_dict() for r in results]
 
 
+def save_event_menu(
+    name: str,
+    guest_count: int,
+    dishes: List[Dict[str, Any]],
+    theme: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Saves or updates a named multi-course event menu in persistent memory.
+
+    Automatically scales every dish's ingredient amounts to the target guest count,
+    computes an allergen safety analysis across all courses, and stores the menu
+    so it can be retrieved, edited, or converted into a shopping list anytime.
+
+    Args:
+        name: Name of the event (e.g. "Graduation Party", "Cozy Autumn Dinner").
+        guest_count: Number of guests expected.
+        dishes: List of dish dicts, each with:
+            - recipe_title (str): Title of the recipe
+            - ingredients (List[str]): Ingredient list
+            - original_servings (int, optional, defaults to 4): Base recipe yield
+            - course (str, optional): "Appetizer", "Main", "Side", "Dessert", etc.
+        theme: Optional description of the party vibe or occasion.
+        notes: Optional host planning notes or guest dietary comments.
+
+    Returns:
+        Structured event plan summary with scaled dishes, consolidated allergens,
+        and diet-safe course indicators.
+    """
+    summary = _menu_agent.plan_and_save_event_menu(
+        name=name,
+        guest_count=guest_count,
+        dishes=dishes,
+        theme=theme,
+        notes=notes,
+        auto_scale=True,
+    )
+    return summary.to_dict()
+
+
+def get_event_menu(name_or_id: str) -> Dict[str, Any]:
+    """Recalls a previously saved event menu from persistent memory by name.
+
+    Args:
+        name_or_id: Name or slug of the event (e.g. "Graduation Party" or "graduation-party").
+
+    Returns:
+        The saved event menu details, courses, scaled ingredients, and allergen summary.
+    """
+    summary = _menu_agent.get_event_menu(name_or_id)
+    if not summary:
+        return {"error": f"No saved menu found for '{name_or_id}'."}
+    return summary.to_dict()
+
+
+def list_event_menus() -> List[Dict[str, Any]]:
+    """Lists all saved event menus in persistent memory.
+
+    Returns:
+        A list of event summaries including event name, guest count, theme, dishes,
+        and allergen profiles.
+    """
+    return _menu_agent.list_saved_menus()
+
+
+def generate_grocery_list_for_menu(name_or_id: str) -> Dict[str, Any]:
+    """Generates a consolidated shopping list for an entire saved event menu.
+
+    Combines ingredients from all courses (scaled to the event guest count),
+    merges duplicate ingredients, and categorizes by supermarket aisle.
+
+    Args:
+        name_or_id: Name or slug of the saved event menu.
+
+    Returns:
+        Aggregated grocery list grouped by supermarket aisle.
+    """
+    grocery_list = _menu_agent.generate_menu_grocery_list(name_or_id)
+    if not grocery_list:
+        return {"error": f"No saved menu found for '{name_or_id}'."}
+    return grocery_list.to_dict()
+
+
 # ADK Agent Definition
 DINNERGUEST_INSTRUCTION = """
 You are Dinnerguest, an expert culinary orchestration assistant designed to facilitate meal and party planning.
@@ -210,6 +301,14 @@ Your primary responsibilities include:
    - If a recipe was scaled, include the scale_factor in the recipe entry so quantities reflect the correct serving size.
    - Mention which recipes each ingredient comes from when it was combined.
 
+6. Event & Party Menu Planning (Persistent Memory):
+   - When a user is planning a dinner party, holiday meal, or named celebration:
+   - Help them organize balanced courses (Appetizer, Main, Side, Dessert).
+   - Call `save_event_menu` to save the menu with their desired guest count, theme, and selected dishes. Every dish is automatically scaled to the guest count and analyzed for allergens.
+   - When asked about existing plans (e.g., "What did we plan for our graduation party?"), call `get_event_menu` or `list_event_menus`.
+   - When the user is ready to shop for the event, call `generate_grocery_list_for_menu`.
+   - Always summarize allergen safety across courses so hosts know their guests are safe.
+
 Formatting Guidelines:
 - Always format all numbers, ingredient quantities, and culinary fractions in clean plain text (e.g., "1 1/2 cups", "1/2 tsp", "3/4 lb").
 - Never use LaTeX math notation or dollar signs for fractions (do NOT write $\\frac{1}{2}$ or $1\\frac{1}{2}$).
@@ -245,5 +344,9 @@ root_agent = Agent(
         check_allergens_for_ingredients,
         scale_recipe_servings,
         generate_grocery_list,
+        save_event_menu,
+        get_event_menu,
+        list_event_menus,
+        generate_grocery_list_for_menu,
     ],
 )

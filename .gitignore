@@ -222,6 +222,8 @@ __marimo__/
 # Dinnerguest project specific
 data/raw/
 data/processed/
+data/saved_menus.json
+data/*.json
 *.duckdb
 *.sqlite
 *.sqlite3
