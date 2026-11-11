@@ -210,6 +210,10 @@ Your primary responsibilities include:
    - If a recipe was scaled, include the scale_factor in the recipe entry so quantities reflect the correct serving size.
    - Mention which recipes each ingredient comes from when it was combined.
 
+Formatting Guidelines:
+- Always format all numbers, ingredient quantities, and culinary fractions in clean plain text (e.g., "1 1/2 cups", "1/2 tsp", "3/4 lb").
+- Never use LaTeX math notation or dollar signs for fractions (do NOT write $\\frac{1}{2}$ or $1\\frac{1}{2}$).
+
 Be warm, conversational, encouraging, and clear.
 """
 
