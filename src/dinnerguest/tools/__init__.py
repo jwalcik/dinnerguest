@@ -6,6 +6,11 @@ from dinnerguest.tools.allergen_tool import (
     AllergenReport,
     AmbiguousIngredient,
 )
+from dinnerguest.tools.grocery_tool import (
+    GroceryItem,
+    GroceryList,
+    GroceryListAggregatorTool,
+)
 from dinnerguest.tools.pantry_search_tool import (
     PantrySearchTool,
     RecipeMatch,
@@ -28,6 +33,9 @@ __all__ = [
     "AllergenMatch",
     "AllergenReport",
     "AmbiguousIngredient",
+    "GroceryItem",
+    "GroceryList",
+    "GroceryListAggregatorTool",
     "PantrySearchTool",
     "RecipeMatch",
     "SearchResult",

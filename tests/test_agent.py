@@ -4,6 +4,7 @@ import unittest
 from dinnerguest.agent import (
     check_allergens_for_ingredients,
     find_recipes_by_on_hand_ingredients,
+    generate_grocery_list,
     root_agent,
     scale_recipe_servings,
     search_recipes_by_vibe,
@@ -14,7 +15,17 @@ class TestDinnerguestAgent(unittest.TestCase):
     def test_root_agent_metadata(self):
         self.assertEqual(root_agent.name, "Dinnerguest")
         self.assertIsNotNone(root_agent.instruction)
-        self.assertEqual(len(root_agent.tools), 4)
+        self.assertEqual(len(root_agent.tools), 5)
+
+    def test_generate_grocery_list_tool(self):
+        recipes = [
+            {"title": "Cookies", "ingredients": ["1 cup sugar"]},
+            {"title": "Crisp", "ingredients": ["0.5 cup sugar"]},
+        ]
+        result = generate_grocery_list(recipes)
+        self.assertIn("items", result)
+        self.assertIn("by_aisle", result)
+        self.assertEqual(result["recipe_count"], 2)
 
     def test_search_recipes_by_vibe_tool(self):
         result = search_recipes_by_vibe("spicy pork", format="noodle")

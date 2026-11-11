@@ -1,7 +1,7 @@
 """Dinnerguest ADK Root Agent.
 
-Defines the primary orchestration agent and exposes Phase 1 & Phase 2 deterministic
-tools and on-hand recommendation capabilities for the ADK CLI and Web UI (`adk web`).
+Defines the primary orchestration agent and exposes Phase 1–4 deterministic
+tools and recommendation capabilities for the ADK CLI and Web UI (`adk web`).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ if "GOOGLE_CLOUD_LOCATION" not in os.environ:
     os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 
 from dinnerguest.tools.allergen_tool import AllergenChecker
+from dinnerguest.tools.grocery_tool import GroceryListAggregatorTool
 from dinnerguest.tools.pantry_search_tool import PantrySearchTool
 from dinnerguest.tools.scaler_tool import RecipeScaler
 from dinnerguest.tools.vibe_search_tool import VibeSearchTool
@@ -36,6 +37,7 @@ _allergen_checker = AllergenChecker()
 _pantry_search_tool = PantrySearchTool(allergen_checker=_allergen_checker)
 _recipe_scaler = RecipeScaler()
 _vibe_tool = VibeSearchTool(allergen_checker=_allergen_checker)
+_grocery_tool = GroceryListAggregatorTool()
 
 
 def find_recipes_by_on_hand_ingredients(
@@ -114,6 +116,30 @@ def scale_recipe_servings(
     return result.to_dict()
 
 
+def generate_grocery_list(
+    recipe_ingredient_lists: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Generates a consolidated shopping list from one or more recipes' ingredient lists.
+
+    Combines identical ingredients across recipes (e.g. 1 cup sugar from cookies +
+    0.5 cup sugar from crisp = 1.5 cups sugar), converts quantities to the most
+    readable culinary unit, and categorises every item by supermarket aisle
+    (Produce, Meat & Seafood, Dairy & Eggs, Baking, etc.) for efficient shopping.
+
+    Args:
+        recipe_ingredient_lists: List of recipe dicts, each containing:
+            - title (str): recipe name
+            - ingredients (List[str]): raw ingredient strings with quantities
+            - scale_factor (float, optional): multiplier if the recipe is being scaled
+
+    Returns:
+        Shopping list with combined quantities, aisle groupings, source recipe attribution,
+        and total item count.
+    """
+    result = _grocery_tool.generate(recipe_ingredient_lists)
+    return result.to_dict()
+
+
 def search_recipes_by_vibe(
     vibe_or_craving: str,
     flavor_profile: Optional[str] = None,
@@ -177,6 +203,13 @@ Your primary responsibilities include:
    - Never guess or speculate on allergens without running the deterministic tool.
    - Relay any ambiguous ingredients (such as "natural flavors" or "spice blend") to the user as items requiring label verification.
 
+5. Grocery List Generation:
+   - When a user has selected one or more recipes and wants a shopping list, call `generate_grocery_list`.
+   - The tool automatically combines identical ingredients across multiple recipes (e.g. 1 cup sugar + 0.5 cup sugar = 1.5 cups sugar).
+   - Present the list grouped by supermarket aisle (Produce, Meat & Seafood, Dairy, Baking, Spices, etc.) for efficient shopping.
+   - If a recipe was scaled, include the scale_factor in the recipe entry so quantities reflect the correct serving size.
+   - Mention which recipes each ingredient comes from when it was combined.
+
 Be warm, conversational, encouraging, and clear.
 """
 
@@ -207,5 +240,6 @@ root_agent = Agent(
         search_recipes_by_vibe,
         check_allergens_for_ingredients,
         scale_recipe_servings,
+        generate_grocery_list,
     ],
 )
