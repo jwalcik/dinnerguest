@@ -21,6 +21,10 @@ try:
 except ImportError:
     pass
 
+# Ensure default to global location for Vertex AI preview models if not explicitly set
+if "GOOGLE_CLOUD_LOCATION" not in os.environ:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
+
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.pantry_search_tool import PantrySearchTool
 from dinnerguest.tools.scaler_tool import RecipeScaler
