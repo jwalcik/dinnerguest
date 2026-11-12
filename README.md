@@ -107,6 +107,7 @@ Deploy all services in the correct dependency order:
 ```bash
 export PROJECT_ID="your-gcp-project-id"
 export REGION="us-central1"
+export CLOUDSDK_CORE_PROJECT="your-gcp-project-id"
 
 ./scripts/deploy_all.sh
 ```
@@ -182,8 +183,3 @@ You can re-deploy any single service anytime:
     ├── test_scaler.py              # Recipe scaler bounds tests
     └── test_vibe_agent.py          # Vibe agent & 5-question guardrail tests
 ```
-
----
-
-## 🔒 Safety & Determinism Guarantee
-All critical dietary operations (allergen detection, quantity scaling arithmetic, and grocery aggregation) are performed by deterministic, zero-hallucination code rather than stochastic LLM generation.
