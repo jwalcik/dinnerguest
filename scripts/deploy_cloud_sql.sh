@@ -27,7 +27,6 @@ else
         --database-version="$CLOUD_SQL_POSTGRES_VERSION" \
         --tier="$CLOUD_SQL_TIER" \
         --region="$REGION" \
-        --database-flags="cloudsql.enable_pgvector=on" \
         --storage-type="SSD" \
         --storage-size="20GB" \
         --storage-auto-increase
