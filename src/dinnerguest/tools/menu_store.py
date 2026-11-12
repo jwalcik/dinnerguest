@@ -8,6 +8,8 @@ scaling to guest count and cross-dish allergen aggregation.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -16,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.scaler_tool import RecipeScaler
+
+logger = logging.getLogger(__name__)
 
 
 def _slugify(text: str) -> str:
@@ -124,6 +128,8 @@ class EventMenuStore:
         storage_path: Optional[str | Path] = None,
         scaler: Optional[RecipeScaler] = None,
         allergen_checker: Optional[AllergenChecker] = None,
+        use_firestore: Optional[bool] = None,
+        firestore_client: Any = None,
     ) -> None:
         if storage_path:
             self.storage_path = Path(storage_path)
@@ -133,16 +139,55 @@ class EventMenuStore:
 
         self.scaler = scaler or RecipeScaler()
         self.allergen_checker = allergen_checker or AllergenChecker()
+
+        # Firestore Configuration
+        if use_firestore is None:
+            use_firestore = os.getenv("USE_FIRESTORE", "false").lower() in ("true", "1")
+        self.use_firestore = use_firestore
+        self.firestore_collection = os.getenv("FIRESTORE_COLLECTION", "saved_menus")
+        self._firestore_db = firestore_client
+
+        if self.use_firestore and self._firestore_db is None:
+            self._init_firestore()
+
         self._ensure_storage()
 
+    def _init_firestore(self) -> None:
+        """Initializes Google Cloud Firestore client if available."""
+        try:
+            from google.cloud import firestore
+            project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+            database = os.getenv("FIRESTORE_DATABASE", "(default)")
+            self._firestore_db = firestore.Client(project=project, database=database)
+            logger.info("Connected to Firestore database '%s' for event menus.", database)
+        except Exception as exc:
+            logger.warning(
+                "Failed to initialize Firestore client (%s). Falling back to local file storage at %s.",
+                exc,
+                self.storage_path,
+            )
+            self.use_firestore = False
+            self._firestore_db = None
+
     def _ensure_storage(self) -> None:
-        """Initializes storage file if it does not exist."""
-        if not self.storage_path.exists():
+        """Initializes storage file if it does not exist (when not using Firestore)."""
+        if not self.use_firestore and not self.storage_path.exists():
             self.storage_path.parent.mkdir(parents=True, exist_ok=True)
             self._save_all({})
 
     def _load_all(self) -> Dict[str, Dict[str, Any]]:
         """Loads all raw menu dicts keyed by event_id."""
+        if self.use_firestore and self._firestore_db is not None:
+            try:
+                col_ref = self._firestore_db.collection(self.firestore_collection)
+                docs = col_ref.stream()
+                results: Dict[str, Dict[str, Any]] = {}
+                for doc in docs:
+                    results[doc.id] = doc.to_dict()
+                return results
+            except Exception as exc:
+                logger.warning("Error fetching menus from Firestore (%s). Falling back to local file.", exc)
+
         if not self.storage_path.exists():
             return {}
         try:
@@ -152,7 +197,15 @@ class EventMenuStore:
             return {}
 
     def _save_all(self, data: Dict[str, Dict[str, Any]]) -> None:
-        """Persists all menu dicts to JSON file."""
+        """Persists all menu dicts to JSON file (and syncs to Firestore if active)."""
+        if self.use_firestore and self._firestore_db is not None:
+            try:
+                col_ref = self._firestore_db.collection(self.firestore_collection)
+                for event_id, menu_dict in data.items():
+                    col_ref.document(event_id).set(menu_dict)
+            except Exception as exc:
+                logger.warning("Error saving menus to Firestore (%s). Saving locally.", exc)
+
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.storage_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -287,17 +340,26 @@ class EventMenuStore:
         """Deletes a saved menu. Returns True if deleted, False if not found."""
         all_menus = self._load_all()
         target_id = _slugify(name_or_id)
+        deleted_id: Optional[str] = None
 
         if target_id in all_menus:
+            deleted_id = target_id
             del all_menus[target_id]
+        else:
+            lower_query = name_or_id.strip().lower()
+            for k, v in list(all_menus.items()):
+                if v.get("name", "").lower() == lower_query:
+                    deleted_id = k
+                    del all_menus[k]
+                    break
+
+        if deleted_id:
+            if self.use_firestore and self._firestore_db is not None:
+                try:
+                    self._firestore_db.collection(self.firestore_collection).document(deleted_id).delete()
+                except Exception as exc:
+                    logger.warning("Error deleting menu '%s' from Firestore: %s", deleted_id, exc)
             self._save_all(all_menus)
             return True
-
-        lower_query = name_or_id.strip().lower()
-        for k, v in list(all_menus.items()):
-            if v.get("name", "").lower() == lower_query:
-                del all_menus[k]
-                self._save_all(all_menus)
-                return True
 
         return False
