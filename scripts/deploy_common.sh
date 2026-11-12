@@ -49,7 +49,7 @@ load_deploy_env() {
 
     # Storage & Database Identifiers
     GCS_BUCKET="${GCS_BUCKET:-${PROJECT_ID}-dinnerguest-assets}"
-    FIRESTORE_DATABASE="${FIRESTORE_DATABASE:-(default)}"
+    FIRESTORE_DATABASE="${FIRESTORE_DATABASE:-dinnerguest-events}"
     
     # Cloud SQL Configuration
     CLOUD_SQL_INSTANCE="${CLOUD_SQL_INSTANCE:-dinnerguest-postgres}"

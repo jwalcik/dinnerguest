@@ -157,7 +157,7 @@ class EventMenuStore:
         try:
             from google.cloud import firestore
             project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-            database = os.getenv("FIRESTORE_DATABASE", "(default)")
+            database = os.getenv("FIRESTORE_DATABASE", "dinnerguest-events")
             self._firestore_db = firestore.Client(project=project, database=database)
             logger.info("Connected to Firestore database '%s' for event menus.", database)
         except Exception as exc:
