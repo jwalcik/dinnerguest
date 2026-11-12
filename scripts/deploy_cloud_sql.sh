@@ -68,11 +68,11 @@ if [[ -f "$SCHEMA_FILE" ]]; then
     log_info "Uploading schema to $GCS_SCHEMA_URI..."
     gcloud storage cp "$SCHEMA_FILE" "$GCS_SCHEMA_URI"
     
-    # Grant Cloud SQL Service Account read access to the schema in GCS
+    # Grant Cloud SQL Service Account read access to the bucket in GCS (bucket-level for UBLA)
     SQL_SA=$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project="$PROJECT_ID" --format="value(serviceAccountEmailAddress)")
     if [[ -n "$SQL_SA" ]]; then
-        log_info "Granting Cloud SQL service account ($SQL_SA) read access to $GCS_SCHEMA_URI..."
-        gcloud storage objects add-iam-policy-binding "$GCS_SCHEMA_URI" \
+        log_info "Granting Cloud SQL service account ($SQL_SA) read access to gs://${GCS_BUCKET}..."
+        gcloud storage buckets add-iam-policy-binding "gs://${GCS_BUCKET}" \
             --member="serviceAccount:${SQL_SA}" \
             --role="roles/storage.objectViewer" &>/dev/null || true
     fi
