@@ -335,7 +335,7 @@ except ImportError:
 
 root_agent = Agent(
     name="Dinnerguest",
-    model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
+    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
     description="Culinary orchestrator assisting with meal planning, on-hand recipe discovery, scaling, and allergen checks.",
     instruction=DINNERGUEST_INSTRUCTION,
     tools=[

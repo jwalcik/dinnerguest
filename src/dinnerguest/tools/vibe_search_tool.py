@@ -63,18 +63,32 @@ class VibeSearchTool:
         allergen_checker: Optional[AllergenChecker] = None,
     ):
         base_dir = Path(__file__).parent.parent
-        self.recipes_path = Path(recipes_path or (base_dir.parent.parent / "tests" / "fixtures" / "sample_recipes.json"))
+        canonical_recipes = base_dir / "data" / "recipes_canonical.json"
+        fixture_recipes = base_dir.parent.parent / "tests" / "fixtures" / "sample_recipes.json"
+        default_recipes = canonical_recipes if canonical_recipes.exists() else fixture_recipes
+        self.recipes_path = Path(recipes_path or default_recipes)
         self.taxonomy_path = Path(taxonomy_path or (base_dir / "data" / "vibe_taxonomy.json"))
         self.allergen_checker = allergen_checker or AllergenChecker()
 
         self._load_data()
 
     def _load_data(self) -> None:
-        if self.recipes_path.exists():
-            with open(self.recipes_path, "r", encoding="utf-8") as f:
-                self.recipes: List[Dict[str, Any]] = json.load(f)
-        else:
-            self.recipes = []
+        try:
+            from dinnerguest.database import fetch_recipes_from_db
+            db_recipes = fetch_recipes_from_db(limit=100)
+            if db_recipes:
+                self.recipes: List[Dict[str, Any]] = db_recipes
+            elif self.recipes_path.exists():
+                with open(self.recipes_path, "r", encoding="utf-8") as f:
+                    self.recipes = json.load(f)
+            else:
+                self.recipes = []
+        except Exception:
+            if self.recipes_path.exists():
+                with open(self.recipes_path, "r", encoding="utf-8") as f:
+                    self.recipes = json.load(f)
+            else:
+                self.recipes = []
 
         if self.taxonomy_path.exists():
             with open(self.taxonomy_path, "r", encoding="utf-8") as f:
@@ -131,8 +145,17 @@ class VibeSearchTool:
                 if required_format not in raw_text:
                     continue
             if required_profile:
-                if required_profile not in recipe_tags and required_profile not in raw_text:
-                    continue
+                if required_profile == "savory":
+                    is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"])
+                    if "savory" not in recipe_tags and "savory" not in raw_text and is_sweet_dish:
+                        continue
+                elif required_profile == "sweet":
+                    is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"]) or "sweet" in raw_text
+                    if not is_sweet_dish:
+                        continue
+                else:
+                    if required_profile not in recipe_tags and required_profile not in raw_text:
+                        continue
             if required_protein:
                 if required_protein not in raw_text:
                     continue

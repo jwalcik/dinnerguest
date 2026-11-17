@@ -558,7 +558,95 @@ def _extract_trace_id(request: Any = None) -> str:
     return f"{int(time.time()*1000):x}{os.getpid():04x}"
 
 
+def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Optional[Dict[str, Any]]:
+    """Attempts to execute the agent turn using Gemini with tools via Google GenAI / Vertex AI.
+
+    Falls back cleanly to the deterministic agent pipeline if GenAI is unavailable or fails.
+    """
+    project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project or os.getenv("DISABLE_LLM_AGENT", "false").lower() == "true":
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+        from dinnerguest.agent import (
+            find_recipes_by_on_hand_ingredients,
+            search_recipes_by_vibe,
+            check_allergens_for_ingredients,
+            scale_recipe_servings,
+            generate_grocery_list,
+            save_event_menu,
+            get_event_menu,
+            list_event_menus,
+            generate_grocery_list_for_menu,
+            DINNERGUEST_INSTRUCTION,
+        )
+
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+        model_name = os.getenv("GEN_MODEL", "gemini-2.5-flash")
+
+        client = genai.Client(vertexai=True, project=project, location=location)
+        available_tools = [
+            find_recipes_by_on_hand_ingredients,
+            search_recipes_by_vibe,
+            check_allergens_for_ingredients,
+            scale_recipe_servings,
+            generate_grocery_list,
+            save_event_menu,
+            get_event_menu,
+            list_event_menus,
+            generate_grocery_list_for_menu,
+        ]
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=user_msg,
+            config=types.GenerateContentConfig(
+                system_instruction=DINNERGUEST_INSTRUCTION,
+                tools=available_tools,
+                temperature=0.2,
+            ),
+        )
+
+        events: List[Dict[str, Any]] = [
+            {"type": "thought", "text": f"Dinnerguest LLM reasoning active ({model_name}). Processing query with tool orchestrator..."}
+        ]
+
+        if getattr(response, "function_calls", None):
+            for call in response.function_calls:
+                events.append({
+                    "type": "tool_call",
+                    "tool": getattr(call, "name", "tool"),
+                    "args": dict(getattr(call, "args", {}) or {}),
+                })
+
+        reply_text = getattr(response, "text", "") or ""
+        if reply_text.strip():
+            return {
+                "reply": reply_text.strip(),
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+            }
+    except Exception as exc:
+        logger.info("Vertex AI LLM agent pass skipped (%s); executing deterministic culinary pipeline", exc)
+        return None
+
+    return None
+
+
 def _execute_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[str, Any]:
+    # 0. Attempt LLM Agent execution via Google GenAI / Vertex AI if active
+    llm_result = _try_gemini_agent_turn(user_msg, session_id, trace_id)
+    if llm_result is not None:
+        return llm_result
+
+    # 1. Deterministic Agent Pipeline Fallback
+    return _execute_deterministic_agent_turn(user_msg, session_id, trace_id)
+
+
+def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[str, Any]:
     session = _SESSIONS.setdefault(session_id, {
         "vibe_state": None,
         "turn_count": 0,
@@ -730,7 +818,54 @@ def _execute_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[s
             "events": events,
         }
 
-    # 7. Fallback General Assistant Reply
+    # 7. Direct Recipe Search / Instruction Request
+    recipe_clues = [
+        "recipe", "soup", "stew", "skillet", "fajita", "fajitas", "cookie", "cookies",
+        "crisp", "pesto", "bolognese", "taco", "tacos", "meatball", "meatballs",
+        "burger", "burgers", "chicken", "beef", "pork", "pasta", "noodles",
+        "how to cook", "how to make", "how do i make", "how do i cook", "how do you make",
+        "dinner", "lunch", "dessert", "cook", "prepare", "make",
+    ]
+    if any(k in lower for k in recipe_clues):
+        events.append({"type": "thought", "text": "Searching culinary database and recipe catalog for matching instructions and allergen profile..."})
+        from dinnerguest.tools.vibe_search_tool import VibeSearchTool
+        vibe_tool = VibeSearchTool()
+        events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}})
+        results = vibe_tool.search_by_vibe(user_msg, limit=3)
+        events.append({"type": "tool_result", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}, "result": [r.to_dict() for r in results]})
+
+        if results:
+            best = results[0]
+            lines = [
+                f"🍲 Here is a great recipe for **{best.title}**:",
+                f"- **Servings**: {best.servings}",
+                f"- **Time**: {best.prep_time_minutes} min prep, {best.cook_time_minutes} min cook",
+                "",
+                "### Ingredients:"
+            ]
+            for ing in best.ingredients:
+                lines.append(f"• {ing}")
+            lines.append("")
+            lines.append("### Instructions:")
+            for idx, step in enumerate(best.instructions, 1):
+                lines.append(f"{idx}. {step}")
+            if best.allergen_report:
+                lines.append("")
+                lines.append(f"⚠️ **Allergen Notice**: {best.allergen_report.get_guest_warning_summary()}")
+            if len(results) > 1:
+                other_titles = [f"'{r.title}'" for r in results[1:]]
+                lines.append("")
+                lines.append(f"💡 *Other matching options: {', '.join(other_titles)}.*")
+
+            return {
+                "reply": "\n".join(lines),
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": [r.to_dict() for r in results],
+            }
+
+    # 8. Fallback General Assistant Reply
     events.append({"type": "thought", "text": "Providing culinary guidance overview and suggestion options."})
     fallback = (
         "I'm here to help you in the kitchen! You can ask me:\n\n"

@@ -160,7 +160,10 @@ class PantrySearchTool:
         allergen_checker: Optional[AllergenChecker] = None,
     ):
         base_dir = Path(__file__).parent.parent
-        self.recipes_path = Path(recipes_path or (base_dir.parent.parent / "tests" / "fixtures" / "sample_recipes.json"))
+        canonical_recipes = base_dir / "data" / "recipes_canonical.json"
+        fixture_recipes = base_dir.parent.parent / "tests" / "fixtures" / "sample_recipes.json"
+        default_recipes = canonical_recipes if canonical_recipes.exists() else fixture_recipes
+        self.recipes_path = Path(recipes_path or default_recipes)
         self.substitutions_path = Path(substitutions_path or (base_dir / "data" / "substitutions_canonical.json"))
         self.staples_path = Path(staples_path or (base_dir / "data" / "pantry_staples.json"))
         self.allergen_checker = allergen_checker or AllergenChecker()
@@ -168,12 +171,23 @@ class PantrySearchTool:
         self._load_data()
 
     def _load_data(self) -> None:
-        # Load recipes
-        if self.recipes_path.exists():
-            with open(self.recipes_path, "r", encoding="utf-8") as f:
-                self.recipes: List[Dict[str, Any]] = json.load(f)
-        else:
-            self.recipes = []
+        # Check Cloud SQL first if configured and populated
+        try:
+            from dinnerguest.database import fetch_recipes_from_db
+            db_recipes = fetch_recipes_from_db(limit=100)
+            if db_recipes:
+                self.recipes: List[Dict[str, Any]] = db_recipes
+            elif self.recipes_path.exists():
+                with open(self.recipes_path, "r", encoding="utf-8") as f:
+                    self.recipes = json.load(f)
+            else:
+                self.recipes = []
+        except Exception:
+            if self.recipes_path.exists():
+                with open(self.recipes_path, "r", encoding="utf-8") as f:
+                    self.recipes = json.load(f)
+            else:
+                self.recipes = []
 
         # Load substitutions
         if self.substitutions_path.exists():

@@ -48,20 +48,26 @@ class OnHandRecommendationAgent:
     def extract_ingredients_from_text(self, text: str) -> List[str]:
         """Simple extractor to pull candidate ingredients from conversational natural language."""
         cleaned = text.strip()
-        # Remove trailing question clauses like "what can I make?", "what can I cook?", "any ideas?"
-        cleaned = re.sub(
-            r"[,;]?\s*(what\s+(can|should|could)\s+i\s+(make|cook|prepare).*|\bany\s+ideas\b.*|\bwhat\s+do\s+you\s+suggest\b.*)$",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-        # Clean common conversational filler prefixes
-        cleaned = re.sub(
-            r"^(i have|i've got|what can i make with|what can i cook with|looking for a recipe with)\s+",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
+        # If there's an "I have" or "have" clause, isolate it or clean leading statements
+        # e.g. "I would like to make a dessert. I have two apples, half a red onion..."
+        m = re.search(r"\b(?:i have|i've got|we have|got)\s+(.*)", cleaned, re.IGNORECASE)
+        if m:
+            cleaned = m.group(1)
+        else:
+            # Remove trailing question clauses like "what can I make?", "what can I cook?", "any ideas?"
+            cleaned = re.sub(
+                r"[,;]?\s*(what\s+(can|should|could)\s+i\s+(make|cook|prepare).*|\bany\s+ideas\b.*|\bwhat\s+do\s+you\s+suggest\b.*)$",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            # Clean common conversational filler prefixes
+            cleaned = re.sub(
+                r"^(i have|i've got|what can i make with|what can i cook with|looking for a recipe with)\s+",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
         cleaned = re.sub(
             r"\b(and|with|some|a couple of|a few|in my fridge|in my pantry)\b",
             ",",
@@ -91,6 +97,15 @@ class OnHandRecommendationAgent:
             page=page,
             page_size=page_size,
         )
+
+        # If no close matches under strict limit, check if missing common staples allows viable matches
+        if search_result.total_matches_count == 0 and max_missing < 3:
+            search_result = self.search_tool.search_recipes(
+                on_hand_ingredients=ingredients,
+                max_missing=3,
+                page=page,
+                page_size=page_size,
+            )
 
         reply_lines: List[str] = []
 

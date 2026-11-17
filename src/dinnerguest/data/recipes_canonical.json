@@ -1,0 +1,523 @@
+[
+  {
+    "id": "recipe_001",
+    "title": "Classic Italian Meatballs",
+    "servings": 4,
+    "prep_time_minutes": 25,
+    "cook_time_minutes": 30,
+    "tags": [
+      "comfort",
+      "cozy",
+      "italian",
+      "dinner",
+      "beef",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "0.5 cup breadcrumbs",
+      "1 large egg",
+      "0.25 cup grated parmesan cheese",
+      "2 cloves garlic, minced",
+      "0.25 cup chopped fresh parsley",
+      "1 tsp salt",
+      "0.5 tsp black pepper",
+      "2 cups marinara sauce"
+    ],
+    "instructions": [
+      "In a large bowl, combine ground beef, breadcrumbs, egg, parmesan, garlic, parsley, salt, and pepper.",
+      "Form mixture into 1.5-inch meatballs.",
+      "Brown meatballs in a skillet over medium-high heat for 6-8 minutes.",
+      "Add marinara sauce, reduce heat to low, cover, and simmer for 20 minutes."
+    ]
+  },
+  {
+    "id": "recipe_002",
+    "title": "Bakery Style Chocolate Chip Cookies",
+    "servings": 12,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 10,
+    "tags": [
+      "sweet",
+      "dessert",
+      "baking",
+      "cookies"
+    ],
+    "ingredients": [
+      "2.25 cups all-purpose flour",
+      "0.75 tsp baking soda",
+      "0.5 tsp salt",
+      "1 cup unsalted butter, softened",
+      "0.75 cup brown sugar",
+      "0.5 cup granulated sugar",
+      "1 tsp vanilla extract",
+      "2 large eggs",
+      "2 cups semi-sweet chocolate chips"
+    ],
+    "instructions": [
+      "Preheat oven to 375 degrees F.",
+      "Whisk flour, baking soda, and salt in a small bowl.",
+      "Beat butter, brown sugar, granulated sugar, and vanilla in a large bowl until creamy.",
+      "Add eggs one at a time, beating well after each addition.",
+      "Gradually blend in flour mixture, then fold in chocolate chips.",
+      "Drop rounded tablespoons onto ungreased baking sheets and bake for 9 to 11 minutes."
+    ]
+  },
+  {
+    "id": "recipe_003",
+    "title": "Spicy Dan Dan Pork Noodles",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": [
+      "spicy",
+      "pork",
+      "noodles",
+      "asian",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground pork",
+      "8 oz wheat noodles",
+      "2 tbsp chili crisp oil",
+      "2 tbsp soy sauce",
+      "1 tbsp toasted sesame oil",
+      "1 tbsp tahini",
+      "2 cloves garlic, minced",
+      "3 scallions, chopped",
+      "1 cup chicken broth"
+    ],
+    "instructions": [
+      "Cook noodles according to package instructions, drain and set aside.",
+      "In a wok or skillet, brown ground pork with garlic over high heat.",
+      "Stir in chili crisp oil, soy sauce, sesame oil, and tahini.",
+      "Pour in chicken broth and simmer for 5 minutes.",
+      "Ladle sauce and pork over cooked noodles, garnish with sliced scallions."
+    ]
+  },
+  {
+    "id": "recipe_004",
+    "title": "Traditional Basil Pine Nut Pesto",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 0,
+    "tags": [
+      "italian",
+      "sauce",
+      "pasta",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "2 cups fresh basil leaves",
+      "0.33 cup pine nuts",
+      "0.5 cup grated parmesan cheese",
+      "3 cloves garlic",
+      "0.66 cup extra-virgin olive oil",
+      "0.25 tsp sea salt"
+    ],
+    "instructions": [
+      "Combine basil, pine nuts, and garlic in a food processor and pulse until coarsely chopped.",
+      "Slowly drizzle in olive oil while processor is running on low.",
+      "Transfer to a bowl and stir in grated parmesan and salt."
+    ]
+  },
+  {
+    "id": "recipe_005",
+    "title": "Homestyle Ground Beef & Tomato Skillet",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 20,
+    "tags": [
+      "cozy",
+      "quick",
+      "beef",
+      "comfort",
+      "skillet",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "2 medium tomatoes, diced",
+      "1 medium yellow onion, diced",
+      "1 tsp dried oregano",
+      "1 tsp garlic powder",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat a large skillet over medium-high heat and brown the ground beef.",
+      "Add diced onion and cook until translucent, about 5 minutes.",
+      "Stir in diced tomatoes, oregano, garlic powder, salt, and pepper.",
+      "Simmer for 10-12 minutes until tomatoes break down into a thick sauce."
+    ]
+  },
+  {
+    "id": "recipe_006",
+    "title": "Classic Backyard Cheeseburgers",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 10,
+    "tags": [
+      "party",
+      "bbq",
+      "beef",
+      "grill",
+      "burgers",
+      "savory"
+    ],
+    "ingredients": [
+      "1.5 lbs 80/20 ground beef",
+      "1 tbsp worcestershire sauce",
+      "1 tsp garlic powder",
+      "1 tsp salt",
+      "0.5 tsp freshly cracked black pepper",
+      "4 brioche burger buns",
+      "4 slices cheddar cheese"
+    ],
+    "instructions": [
+      "Gently mix ground beef with worcestershire sauce, garlic powder, salt, and pepper.",
+      "Form into 4 equal patties with a slight depression in the center.",
+      "Grill on high heat for 4 minutes per side.",
+      "Top with cheddar cheese during the last minute of cooking, serve on toasted brioche buns."
+    ]
+  },
+  {
+    "id": "recipe_007",
+    "title": "Skillet Beef Tacos",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 15,
+    "tags": [
+      "quick",
+      "mexican",
+      "beef",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "1 tbsp chili powder",
+      "1 tsp ground cumin",
+      "0.5 tsp garlic powder",
+      "0.5 tsp salt",
+      "8 small corn tortillas",
+      "2 medium tomatoes, diced"
+    ],
+    "instructions": [
+      "Brown ground beef and diced onion in a skillet over medium heat.",
+      "Stir in chili powder, cumin, garlic powder, and salt with 1/4 cup water.",
+      "Simmer until liquid reduces. Serve inside warmed corn tortillas topped with diced tomatoes."
+    ]
+  },
+  {
+    "id": "recipe_008",
+    "title": "Hearty Beef Bolognese Pasta",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 45,
+    "tags": [
+      "cozy",
+      "italian",
+      "beef",
+      "pasta",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "3 medium tomatoes, crushed",
+      "12 oz dry pasta",
+      "2 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat olive oil in a Dutch oven, brown ground beef with onion and garlic.",
+      "Add crushed tomatoes, salt, and pepper; simmer on low for 40 minutes.",
+      "Boil dry pasta in salted water until al dente, drain and toss with bolognese sauce."
+    ]
+  },
+  {
+    "id": "recipe_009",
+    "title": "Savory Beef and Shallot Stir-Fry",
+    "servings": 3,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 10,
+    "tags": [
+      "quick",
+      "asian",
+      "beef",
+      "stir fry",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "2 shallots, thinly sliced",
+      "2 cloves garlic, minced",
+      "2 tbsp soy sauce",
+      "1 tbsp sesame oil",
+      "1 tsp sugar"
+    ],
+    "instructions": [
+      "Heat wok over high heat, brown ground beef.",
+      "Add shallots and garlic, stir-frying for 2 minutes.",
+      "Toss with soy sauce, sesame oil, and sugar for 1 minute before removing from heat."
+    ]
+  },
+  {
+    "id": "recipe_010",
+    "title": "Rustic Beef & Onion Stuffed Peppers",
+    "servings": 4,
+    "prep_time_minutes": 20,
+    "cook_time_minutes": 35,
+    "tags": [
+      "beef",
+      "dinner",
+      "cozy",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb ground beef",
+      "1 medium yellow onion, diced",
+      "2 medium tomatoes, diced",
+      "4 bell peppers, halved",
+      "1 cup cooked rice",
+      "1 tsp dried oregano",
+      "1 tsp salt"
+    ],
+    "instructions": [
+      "Brown beef and onion in a skillet. Stir in tomatoes, oregano, salt, and cooked rice.",
+      "Stuff mixture into halved bell peppers.",
+      "Bake at 375 degrees F for 30 minutes until peppers are tender."
+    ]
+  },
+  {
+    "id": "recipe_011",
+    "title": "Spicy Pork Carnitas Tacos",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": [
+      "spicy",
+      "pork",
+      "tacos",
+      "mexican",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1.5 lbs pork shoulder, diced",
+      "1 tbsp chili powder",
+      "1 tsp ground cumin",
+      "1 tsp dried oregano",
+      "2 cloves garlic, minced",
+      "1 jalape\u00f1o, minced",
+      "8 warm corn tortillas",
+      "1 lime, cut into wedges"
+    ],
+    "instructions": [
+      "Season pork with chili powder, cumin, oregano, and garlic.",
+      "Sear in a skillet until browned, then simmer with jalape\u00f1o and 1/2 cup water until tender.",
+      "Crisp the shredded pork over high heat and serve in warm corn tortillas with lime."
+    ]
+  },
+  {
+    "id": "recipe_012",
+    "title": "Cozy Warm Apple Cinnamon Crisp",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 35,
+    "tags": [
+      "cozy",
+      "sweet",
+      "dessert",
+      "autumn",
+      "comfort",
+      "crisp",
+      "fruit crisp"
+    ],
+    "ingredients": [
+      "3 medium apples, sliced",
+      "0.5 cup granulated sugar",
+      "0.33 cup unsalted butter, softened",
+      "1 tsp ground cinnamon",
+      "0.5 cup rolled oats",
+      "0.25 cup all-purpose flour"
+    ],
+    "instructions": [
+      "Toss sliced apples with half of the cinnamon and sugar, place into a baking dish.",
+      "Combine butter, remaining sugar, oats, flour, and remaining cinnamon to form a crumbly topping.",
+      "Spread topping over apples and bake at 350 degrees F for 35 minutes until golden and bubbly."
+    ]
+  },
+  {
+    "id": "recipe_013",
+    "title": "Cozy Classic Chicken Noodle Soup",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "chicken",
+      "dinner",
+      "winter",
+      "sick",
+      "noodles",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb boneless skinless chicken breasts, diced",
+      "6 cups low-sodium chicken broth",
+      "2 medium carrots, sliced",
+      "2 stalks celery, sliced",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "6 oz egg noodles",
+      "1 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper",
+      "1 tsp dried thyme"
+    ],
+    "instructions": [
+      "Heat olive oil in a large pot over medium heat. Saut\u00e9 diced onion, carrots, and celery for 5-7 minutes until softened.",
+      "Add minced garlic and dried thyme, cooking for 1 minute until fragrant.",
+      "Pour in chicken broth and add diced chicken breasts; bring to a gentle boil.",
+      "Reduce heat to low, cover, and simmer for 15 minutes until chicken is cooked through.",
+      "Stir in egg noodles and cook for 6-8 minutes until tender. Season with salt and black pepper to taste."
+    ]
+  },
+  {
+    "id": "recipe_014",
+    "title": "Homestyle Chicken Vegetable Soup",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 25,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "chicken",
+      "healthy",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb cooked chicken, shredded",
+      "6 cups chicken broth",
+      "2 medium carrots, sliced",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "1 cup frozen green peas",
+      "1 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat olive oil in a soup pot and saut\u00e9 onion, carrots, and garlic for 5 minutes.",
+      "Add chicken broth and bring to a simmer for 12 minutes until vegetables are tender.",
+      "Stir in shredded chicken and frozen peas, heating through for 5 minutes.",
+      "Season with salt and pepper before serving hot."
+    ]
+  },
+  {
+    "id": "recipe_015",
+    "title": "Rustic Apple & Carrot Spice Crisp",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": [
+      "sweet",
+      "dessert",
+      "baking",
+      "apple",
+      "carrot",
+      "cozy",
+      "crisp"
+    ],
+    "ingredients": [
+      "2 medium apples, sliced",
+      "1 cup shredded carrots",
+      "0.5 cup granulated sugar",
+      "4 tbsp unsalted butter, softened",
+      "0.5 cup rolled oats",
+      "0.25 cup all-purpose flour",
+      "1 tsp ground cinnamon"
+    ],
+    "instructions": [
+      "Preheat oven to 350 degrees F.",
+      "In a baking dish, toss sliced apples and shredded carrots with 2 tablespoons of sugar and half the cinnamon.",
+      "In a small bowl, mix softened butter, remaining sugar, rolled oats, flour, and remaining cinnamon into a crumbly mixture.",
+      "Spread oat topping evenly over apple and carrot mixture.",
+      "Bake for 30 minutes until topping is crisp and fruit is tender."
+    ]
+  },
+  {
+    "id": "recipe_016",
+    "title": "Comforting Creamy Tomato Basil Soup",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 20,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "vegetarian",
+      "quick",
+      "lunch",
+      "savory"
+    ],
+    "ingredients": [
+      "1 can (28 oz) whole peeled tomatoes",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "2 cups vegetable broth",
+      "0.25 cup heavy cream",
+      "0.25 cup fresh basil leaves, chopped",
+      "2 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Saut\u00e9 onion and garlic in olive oil in a Dutch oven until fragrant.",
+      "Add tomatoes and vegetable broth; bring to a simmer for 15 minutes.",
+      "Puree soup using an immersion blender until smooth.",
+      "Stir in heavy cream and fresh basil, seasoning with salt and pepper."
+    ]
+  },
+  {
+    "id": "recipe_017",
+    "title": "Classic Skillet Chicken Fajitas",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": [
+      "quick",
+      "mexican",
+      "chicken",
+      "skillet",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1.5 lbs chicken breasts, sliced into strips",
+      "2 bell peppers, sliced",
+      "1 medium yellow onion, sliced",
+      "2 tbsp olive oil",
+      "1 tbsp chili powder",
+      "1 tsp cumin",
+      "1 tsp garlic powder",
+      "8 warm flour tortillas"
+    ],
+    "instructions": [
+      "Toss chicken strips and sliced bell peppers and onions with olive oil, chili powder, cumin, and garlic powder.",
+      "Sear in a hot cast-iron skillet for 8-10 minutes until chicken is cooked through and vegetables are charred.",
+      "Serve immediately with warm flour tortillas."
+    ]
+  }
+]

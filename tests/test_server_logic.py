@@ -68,6 +68,38 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("reply", result)
         self.assertTrue(len(result["events"]) > 0)
 
+    def test_on_hand_dessert_apples_carrots(self):
+        result = _execute_agent_turn(
+            user_msg="I would like to make a dessert. I have two apples, half a red onion, butter, sugar, and shredded carrots",
+            session_id="test_sess_dessert",
+            trace_id="test_trace_dessert",
+        )
+        self.assertIn("reply", result)
+        self.assertTrue("Crisp" in result["reply"])
+        self.assertIn("Allergen Notice", result["reply"])
+
+    def test_recipe_query_chicken_soup(self):
+        result = _execute_agent_turn(
+            user_msg="I need a recipe for chicken soup.",
+            session_id="test_sess_soup",
+            trace_id="test_trace_soup",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Chicken Noodle Soup", result["reply"])
+        self.assertIn("Ingredients:", result["reply"])
+        self.assertIn("Instructions:", result["reply"])
+        self.assertIn("Allergen Notice", result["reply"])
+
+    def test_vibe_cozy_soup_sick(self):
+        result = _execute_agent_turn(
+            user_msg="I'd like to cook a cozy soup for when I'm feeling sick",
+            session_id="test_sess_sick",
+            trace_id="test_trace_sick",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Chicken Noodle Soup", result["reply"])
+        self.assertIn("Allergen Notice", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,14 @@
     "servings": 4,
     "prep_time_minutes": 25,
     "cook_time_minutes": 30,
-    "tags": ["comfort", "cozy", "italian", "dinner", "beef"],
+    "tags": [
+      "comfort",
+      "cozy",
+      "italian",
+      "dinner",
+      "beef",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "0.5 cup breadcrumbs",
@@ -30,7 +37,12 @@
     "servings": 12,
     "prep_time_minutes": 15,
     "cook_time_minutes": 10,
-    "tags": ["sweet", "dessert", "baking", "cookies"],
+    "tags": [
+      "sweet",
+      "dessert",
+      "baking",
+      "cookies"
+    ],
     "ingredients": [
       "2.25 cups all-purpose flour",
       "0.75 tsp baking soda",
@@ -57,7 +69,14 @@
     "servings": 4,
     "prep_time_minutes": 15,
     "cook_time_minutes": 15,
-    "tags": ["spicy", "pork", "noodles", "asian", "quick"],
+    "tags": [
+      "spicy",
+      "pork",
+      "noodles",
+      "asian",
+      "quick",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground pork",
       "8 oz wheat noodles",
@@ -83,7 +102,13 @@
     "servings": 4,
     "prep_time_minutes": 10,
     "cook_time_minutes": 0,
-    "tags": ["italian", "sauce", "pasta", "quick"],
+    "tags": [
+      "italian",
+      "sauce",
+      "pasta",
+      "quick",
+      "savory"
+    ],
     "ingredients": [
       "2 cups fresh basil leaves",
       "0.33 cup pine nuts",
@@ -104,7 +129,14 @@
     "servings": 4,
     "prep_time_minutes": 10,
     "cook_time_minutes": 20,
-    "tags": ["cozy", "quick", "beef", "comfort", "skillet"],
+    "tags": [
+      "cozy",
+      "quick",
+      "beef",
+      "comfort",
+      "skillet",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "2 medium tomatoes, diced",
@@ -127,7 +159,14 @@
     "servings": 4,
     "prep_time_minutes": 15,
     "cook_time_minutes": 10,
-    "tags": ["party", "bbq", "beef", "grill", "burgers"],
+    "tags": [
+      "party",
+      "bbq",
+      "beef",
+      "grill",
+      "burgers",
+      "savory"
+    ],
     "ingredients": [
       "1.5 lbs 80/20 ground beef",
       "1 tbsp worcestershire sauce",
@@ -150,7 +189,13 @@
     "servings": 4,
     "prep_time_minutes": 10,
     "cook_time_minutes": 15,
-    "tags": ["quick", "mexican", "beef", "dinner"],
+    "tags": [
+      "quick",
+      "mexican",
+      "beef",
+      "dinner",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "1 medium yellow onion, diced",
@@ -173,7 +218,13 @@
     "servings": 4,
     "prep_time_minutes": 15,
     "cook_time_minutes": 45,
-    "tags": ["cozy", "italian", "beef", "pasta"],
+    "tags": [
+      "cozy",
+      "italian",
+      "beef",
+      "pasta",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "1 medium yellow onion, diced",
@@ -196,7 +247,13 @@
     "servings": 3,
     "prep_time_minutes": 10,
     "cook_time_minutes": 10,
-    "tags": ["quick", "asian", "beef", "stir fry"],
+    "tags": [
+      "quick",
+      "asian",
+      "beef",
+      "stir fry",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "2 shallots, thinly sliced",
@@ -217,7 +274,12 @@
     "servings": 4,
     "prep_time_minutes": 20,
     "cook_time_minutes": 35,
-    "tags": ["beef", "dinner", "cozy"],
+    "tags": [
+      "beef",
+      "dinner",
+      "cozy",
+      "savory"
+    ],
     "ingredients": [
       "1 lb ground beef",
       "1 medium yellow onion, diced",
@@ -239,20 +301,27 @@
     "servings": 4,
     "prep_time_minutes": 15,
     "cook_time_minutes": 30,
-    "tags": ["spicy", "pork", "tacos", "mexican", "dinner"],
+    "tags": [
+      "spicy",
+      "pork",
+      "tacos",
+      "mexican",
+      "dinner",
+      "savory"
+    ],
     "ingredients": [
       "1.5 lbs pork shoulder, diced",
       "1 tbsp chili powder",
       "1 tsp ground cumin",
       "1 tsp dried oregano",
       "2 cloves garlic, minced",
-      "1 jalapeño, minced",
+      "1 jalape\u00f1o, minced",
       "8 warm corn tortillas",
       "1 lime, cut into wedges"
     ],
     "instructions": [
       "Season pork with chili powder, cumin, oregano, and garlic.",
-      "Sear in a skillet until browned, then simmer with jalapeño and 1/2 cup water until tender.",
+      "Sear in a skillet until browned, then simmer with jalape\u00f1o and 1/2 cup water until tender.",
       "Crisp the shredded pork over high heat and serve in warm corn tortillas with lime."
     ]
   },
@@ -262,7 +331,15 @@
     "servings": 4,
     "prep_time_minutes": 15,
     "cook_time_minutes": 35,
-    "tags": ["cozy", "sweet", "dessert", "autumn", "comfort"],
+    "tags": [
+      "cozy",
+      "sweet",
+      "dessert",
+      "autumn",
+      "comfort",
+      "crisp",
+      "fruit crisp"
+    ],
     "ingredients": [
       "3 medium apples, sliced",
       "0.5 cup granulated sugar",
@@ -275,6 +352,172 @@
       "Toss sliced apples with half of the cinnamon and sugar, place into a baking dish.",
       "Combine butter, remaining sugar, oats, flour, and remaining cinnamon to form a crumbly topping.",
       "Spread topping over apples and bake at 350 degrees F for 35 minutes until golden and bubbly."
+    ]
+  },
+  {
+    "id": "recipe_013",
+    "title": "Cozy Classic Chicken Noodle Soup",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "chicken",
+      "dinner",
+      "winter",
+      "sick",
+      "noodles",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb boneless skinless chicken breasts, diced",
+      "6 cups low-sodium chicken broth",
+      "2 medium carrots, sliced",
+      "2 stalks celery, sliced",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "6 oz egg noodles",
+      "1 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper",
+      "1 tsp dried thyme"
+    ],
+    "instructions": [
+      "Heat olive oil in a large pot over medium heat. Saut\u00e9 diced onion, carrots, and celery for 5-7 minutes until softened.",
+      "Add minced garlic and dried thyme, cooking for 1 minute until fragrant.",
+      "Pour in chicken broth and add diced chicken breasts; bring to a gentle boil.",
+      "Reduce heat to low, cover, and simmer for 15 minutes until chicken is cooked through.",
+      "Stir in egg noodles and cook for 6-8 minutes until tender. Season with salt and black pepper to taste."
+    ]
+  },
+  {
+    "id": "recipe_014",
+    "title": "Homestyle Chicken Vegetable Soup",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 25,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "chicken",
+      "healthy",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb cooked chicken, shredded",
+      "6 cups chicken broth",
+      "2 medium carrots, sliced",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "1 cup frozen green peas",
+      "1 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Heat olive oil in a soup pot and saut\u00e9 onion, carrots, and garlic for 5 minutes.",
+      "Add chicken broth and bring to a simmer for 12 minutes until vegetables are tender.",
+      "Stir in shredded chicken and frozen peas, heating through for 5 minutes.",
+      "Season with salt and pepper before serving hot."
+    ]
+  },
+  {
+    "id": "recipe_015",
+    "title": "Rustic Apple & Carrot Spice Crisp",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 30,
+    "tags": [
+      "sweet",
+      "dessert",
+      "baking",
+      "apple",
+      "carrot",
+      "cozy",
+      "crisp"
+    ],
+    "ingredients": [
+      "2 medium apples, sliced",
+      "1 cup shredded carrots",
+      "0.5 cup granulated sugar",
+      "4 tbsp unsalted butter, softened",
+      "0.5 cup rolled oats",
+      "0.25 cup all-purpose flour",
+      "1 tsp ground cinnamon"
+    ],
+    "instructions": [
+      "Preheat oven to 350 degrees F.",
+      "In a baking dish, toss sliced apples and shredded carrots with 2 tablespoons of sugar and half the cinnamon.",
+      "In a small bowl, mix softened butter, remaining sugar, rolled oats, flour, and remaining cinnamon into a crumbly mixture.",
+      "Spread oat topping evenly over apple and carrot mixture.",
+      "Bake for 30 minutes until topping is crisp and fruit is tender."
+    ]
+  },
+  {
+    "id": "recipe_016",
+    "title": "Comforting Creamy Tomato Basil Soup",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 20,
+    "tags": [
+      "soup",
+      "cozy",
+      "comfort",
+      "vegetarian",
+      "quick",
+      "lunch",
+      "savory"
+    ],
+    "ingredients": [
+      "1 can (28 oz) whole peeled tomatoes",
+      "1 medium yellow onion, diced",
+      "2 cloves garlic, minced",
+      "2 cups vegetable broth",
+      "0.25 cup heavy cream",
+      "0.25 cup fresh basil leaves, chopped",
+      "2 tbsp olive oil",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Saut\u00e9 onion and garlic in olive oil in a Dutch oven until fragrant.",
+      "Add tomatoes and vegetable broth; bring to a simmer for 15 minutes.",
+      "Puree soup using an immersion blender until smooth.",
+      "Stir in heavy cream and fresh basil, seasoning with salt and pepper."
+    ]
+  },
+  {
+    "id": "recipe_017",
+    "title": "Classic Skillet Chicken Fajitas",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": [
+      "quick",
+      "mexican",
+      "chicken",
+      "skillet",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "1.5 lbs chicken breasts, sliced into strips",
+      "2 bell peppers, sliced",
+      "1 medium yellow onion, sliced",
+      "2 tbsp olive oil",
+      "1 tbsp chili powder",
+      "1 tsp cumin",
+      "1 tsp garlic powder",
+      "8 warm flour tortillas"
+    ],
+    "instructions": [
+      "Toss chicken strips and sliced bell peppers and onions with olive oil, chili powder, cumin, and garlic powder.",
+      "Sear in a hot cast-iron skillet for 8-10 minutes until chicken is cooked through and vegetables are charred.",
+      "Serve immediately with warm flour tortillas."
     ]
   }
 ]

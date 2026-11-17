@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         "google-cloud-storage>=2.10.0" \
         "google-cloud-firestore>=2.13.0" \
         "google-cloud-aiplatform>=1.40.0" \
-        "google-genai>=0.1.0"
+        "google-genai>=0.1.0" \
+        "pg8000>=1.30.0"
 
 # Copy project definitions, documentation, source code, and test fixtures
 COPY pyproject.toml README.md ./
@@ -31,7 +32,8 @@ COPY tests/fixtures/ tests/fixtures/
 
 # Verify canonical data files are present in the image
 RUN test -f /app/src/dinnerguest/data/allergens_canonical.json && \
-    test -f /app/src/dinnerguest/data/vibe_taxonomy.json
+    test -f /app/src/dinnerguest/data/vibe_taxonomy.json && \
+    test -f /app/src/dinnerguest/data/recipes_canonical.json
 
 # Install local package in editable mode so /app/src is linked directly
 RUN pip install --no-cache-dir -e .

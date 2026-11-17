@@ -22,6 +22,7 @@ class VibeDialogueState:
     clarifying_turn_count: int = 0
     preferences: Dict[str, str] = field(default_factory=dict)
     conversation_history: List[str] = field(default_factory=list)
+    asked_questions: List[str] = field(default_factory=list)
     status: str = "IN_PROGRESS"  # "IN_PROGRESS", "RECOMMENDED", "EXHAUSTED_FALLBACK"
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +31,7 @@ class VibeDialogueState:
             "clarifying_turn_count": self.clarifying_turn_count,
             "preferences": self.preferences,
             "conversation_history": self.conversation_history,
+            "asked_questions": self.asked_questions,
             "status": self.status,
         }
 
@@ -61,21 +63,37 @@ class VibeRecommendationAgent:
         lower = text.lower()
 
         # Check for protein clues
-        for p in ["pork", "beef", "chicken", "fish", "shrimp", "tofu"]:
+        for p in ["pork", "beef", "chicken", "fish", "shrimp", "tofu", "turkey"]:
             if p in lower:
                 state.preferences["protein"] = p
+                if "flavor_profile" not in state.preferences:
+                    state.preferences["flavor_profile"] = "savory"
 
         # Check for format clues
         if "noodle" in lower or "noodles" in lower or "pasta" in lower or "ramen" in lower:
             state.preferences["format"] = "noodle"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
         elif "taco" in lower or "tacos" in lower or "tortilla" in lower:
             state.preferences["format"] = "taco"
-        elif "skillet" in lower or "stew" in lower or "soup" in lower:
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
+        elif "soup" in lower:
+            state.preferences["format"] = "soup"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
+        elif "skillet" in lower or "stew" in lower:
             state.preferences["format"] = "skillet"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
         elif "cookie" in lower or "cookies" in lower:
             state.preferences["format"] = "cookies"
-        elif "crisp" in lower or "crumble" in lower or "pie" in lower:
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "sweet"
+        elif "crisp" in lower or "crumble" in lower or "pie" in lower or "dessert" in lower or "cake" in lower:
             state.preferences["format"] = "crisp"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "sweet"
 
         # Check for flavor profile clues
         if "savory" in lower:
@@ -125,36 +143,50 @@ class VibeRecommendationAgent:
 
         # 2. Specific branching: "Spicy Pork" scenario
         # "Would you prefer a spicy taco recipe or a noodle dish?"
+        spicy_q = "Would you prefer a spicy taco recipe or a noodle dish?"
         if (
             state.preferences.get("vibe") == "spicy"
             and state.preferences.get("protein") == "pork"
             and "format" not in state.preferences
+            and spicy_q not in state.asked_questions
         ):
             state.clarifying_turn_count += 1
-            question = "Would you prefer a spicy taco recipe or a noodle dish?"
+            state.asked_questions.append(spicy_q)
             return VibeAgentResponse(
-                reply_text=question,
+                reply_text=spicy_q,
                 is_clarifying_question=True,
                 state=state,
             )
 
         # 3. Specific branching: "Cozy / Cold weather" scenario
         # "Would you like something savory or sweet?"
-        if state.preferences.get("vibe") == "cozy" and "flavor_profile" not in state.preferences:
+        cozy_q = "What a great idea! For something cozy, would you prefer something savory or sweet?"
+        if (
+            state.preferences.get("vibe") == "cozy"
+            and "flavor_profile" not in state.preferences
+            and "protein" not in state.preferences
+            and state.preferences.get("format") not in ["soup", "skillet", "noodle", "taco"]
+            and cozy_q not in state.asked_questions
+        ):
             state.clarifying_turn_count += 1
-            question = "What a great idea! For something cozy, would you prefer something savory or sweet?"
+            state.asked_questions.append(cozy_q)
             return VibeAgentResponse(
-                reply_text=question,
+                reply_text=cozy_q,
                 is_clarifying_question=True,
                 state=state,
             )
 
         # 4. Specific branching: "Sweet / Dessert" scenario
-        if state.preferences.get("flavor_profile") == "sweet" and "format" not in state.preferences:
+        sweet_q = "Would you prefer freshly baked cookies or a warm fruit crisp?"
+        if (
+            state.preferences.get("flavor_profile") == "sweet"
+            and "format" not in state.preferences
+            and sweet_q not in state.asked_questions
+        ):
             state.clarifying_turn_count += 1
-            question = "Would you prefer freshly baked cookies or a warm fruit crisp?"
+            state.asked_questions.append(sweet_q)
             return VibeAgentResponse(
-                reply_text=question,
+                reply_text=sweet_q,
                 is_clarifying_question=True,
                 state=state,
             )
@@ -162,6 +194,11 @@ class VibeRecommendationAgent:
         # 5. Search for a matching recipe based on collected preferences
         combined_query = f"{state.initial_query} {' '.join(state.preferences.values())}"
         candidates = self.vibe_tool.search_by_vibe(combined_query, filters=state.preferences, limit=3)
+        if not candidates and len(state.preferences) > 1:
+            relaxed_filters = {k: v for k, v in state.preferences.items() if k != "format"}
+            candidates = self.vibe_tool.search_by_vibe(combined_query, filters=relaxed_filters, limit=3)
+        if not candidates:
+            candidates = self.vibe_tool.search_by_vibe(combined_query, limit=3)
 
         if candidates:
             top_recipe = candidates[0]
@@ -171,10 +208,21 @@ class VibeRecommendationAgent:
         # 6. If no matches yet and below limit, ask an open clarifying question
         if state.clarifying_turn_count < MAX_CLARIFYING_QUESTIONS:
             state.clarifying_turn_count += 1
-            clarifying_prompt = (
-                f"To help narrow down the perfect dish, do you have a preferred protein (like beef, pork, or vegetarian) "
-                f"or a favorite cuisine in mind?"
-            )
+            if "protein" not in state.preferences:
+                clarifying_prompt = (
+                    "To help narrow down the perfect dish, do you have a preferred protein (like chicken, beef, pork, or vegetarian)?"
+                )
+            elif "format" not in state.preferences:
+                clarifying_prompt = (
+                    "Do you have a preferred style in mind, such as a hearty soup, pasta, or a quick skillet dish?"
+                )
+            else:
+                clarifying_prompt = (
+                    "Do you have any favorite spices, herbs, or cuisines in mind for this meal?"
+                )
+            if clarifying_prompt in state.asked_questions:
+                clarifying_prompt = "Could you tell me a little more about what ingredients you'd love to include?"
+            state.asked_questions.append(clarifying_prompt)
             return VibeAgentResponse(
                 reply_text=clarifying_prompt,
                 is_clarifying_question=True,
