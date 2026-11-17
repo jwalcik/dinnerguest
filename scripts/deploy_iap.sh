@@ -191,7 +191,7 @@ log_success "Granted 'roles/iap.httpsResourceAccessor' to ${IAP_USER}"
 
 # 9. Provision IAP Service Identity and Grant Cloud Run Invoker Permissions
 log_step "Provisioning Google Cloud IAP service identity..."
-gcloud services identity create --service=iap.googleapis.com --project="$PROJECT_ID" --quiet 2>/dev/null || true
+gcloud beta services identity create --service=iap.googleapis.com --project="$PROJECT_ID" --quiet 2>/dev/null || true
 
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)" 2>/dev/null || true)
 if [[ -n "$PROJECT_NUMBER" ]]; then
