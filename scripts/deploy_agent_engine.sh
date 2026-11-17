@@ -132,7 +132,11 @@ if [[ -n "$ACTIVE_ACCOUNT" && "$ACTIVE_ACCOUNT" != "(unset)" ]]; then
         --quiet &>/dev/null || true
 fi
 
-SERVICE_URL=$(gcloud run services describe "$AGENT_SERVICE_NAME" --project="$PROJECT_ID" --region="$REGION" --format="value(status.url)")
+if [[ -n "${PROJECT_NUMBER:-}" ]]; then
+    SERVICE_URL="https://${AGENT_SERVICE_NAME}-${PROJECT_NUMBER}.${REGION}.run.app"
+else
+    SERVICE_URL=$(gcloud run services describe "$AGENT_SERVICE_NAME" --project="$PROJECT_ID" --region="$REGION" --format="value(status.url)")
+fi
 
 log_success "Agent Engine / Cloud Run service deployed successfully!"
 log_info "Service URL: $SERVICE_URL"
