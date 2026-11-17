@@ -519,5 +519,180 @@
       "Sear in a hot cast-iron skillet for 8-10 minutes until chicken is cooked through and vegetables are charred.",
       "Serve immediately with warm flour tortillas."
     ]
+  },
+  {
+    "id": "recipe_018",
+    "title": "Crispy Spicy Garlic Roasted Potatoes",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 30,
+    "tags": [
+      "spicy",
+      "potato",
+      "potatoes",
+      "side",
+      "vegetarian",
+      "cozy",
+      "dinner",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "2 lbs Yukon Gold or baby red potatoes, cubed",
+      "2 tbsp olive oil",
+      "4 cloves garlic, minced",
+      "1 tsp chili powder",
+      "0.5 tsp cayenne pepper",
+      "1 tsp smoked paprika",
+      "1 tsp salt",
+      "0.5 tsp black pepper",
+      "2 tbsp fresh parsley, chopped"
+    ],
+    "instructions": [
+      "Preheat oven to 400\u00b0F (200\u00b0C) and line a baking sheet with parchment paper.",
+      "In a large bowl, toss cubed potatoes with olive oil, minced garlic, chili powder, cayenne pepper, smoked paprika, salt, and black pepper until evenly coated.",
+      "Spread potatoes in a single layer on the baking sheet.",
+      "Roast for 25-30 minutes, flipping halfway through, until crispy and golden brown.",
+      "Garnish with chopped fresh parsley and serve hot."
+    ]
+  },
+  {
+    "id": "recipe_019",
+    "title": "Spicy Honey-Glazed Roasted Carrots",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 25,
+    "tags": [
+      "spicy",
+      "carrot",
+      "carrots",
+      "side",
+      "vegetarian",
+      "healthy",
+      "dinner",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "1 lb carrots, peeled and sliced diagonally",
+      "1.5 tbsp olive oil",
+      "1 tbsp honey",
+      "1 tsp red pepper chili flakes",
+      "0.5 tsp ground cumin",
+      "2 cloves garlic, minced",
+      "0.5 tsp salt",
+      "0.25 tsp black pepper"
+    ],
+    "instructions": [
+      "Preheat oven to 400\u00b0F (200\u00b0C).",
+      "In a bowl, whisk olive oil, honey, minced garlic, red pepper chili flakes, cumin, salt, and black pepper.",
+      "Add sliced carrots and toss until thoroughly glazed.",
+      "Spread carrots in a single layer on a baking sheet.",
+      "Roast for 20-25 minutes, stirring once halfway through, until tender and caramelized."
+    ]
+  },
+  {
+    "id": "recipe_020",
+    "title": "Herb-Roasted Turkey Breast with Pan Gravy",
+    "servings": 8,
+    "prep_time_minutes": 20,
+    "cook_time_minutes": 75,
+    "tags": [
+      "thanksgiving",
+      "holiday",
+      "dinner",
+      "turkey",
+      "roast",
+      "comfort",
+      "savory"
+    ],
+    "ingredients": [
+      "6 lbs bone-in turkey breast",
+      "4 tbsp unsalted butter, softened",
+      "2 tbsp fresh rosemary, chopped",
+      "2 tbsp fresh thyme, chopped",
+      "4 cloves garlic, minced",
+      "2 cups low-sodium chicken broth",
+      "2 tbsp all-purpose flour",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Preheat oven to 375\u00b0F (190\u00b0C).",
+      "In a small bowl, blend softened butter with minced garlic, rosemary, thyme, salt, and black pepper.",
+      "Rub the herb butter generously all over and under the skin of the turkey breast.",
+      "Place turkey breast in a roasting pan with 0.5 cup chicken broth in the bottom. Roast for 60-75 minutes until internal temperature reaches 165\u00b0F (74\u00b0C).",
+      "Transfer turkey to a carving board and rest 15 minutes before carving.",
+      "Place roasting pan on stovetop over medium heat, whisk flour into pan drippings, then slowly whisk in remaining 1.5 cups chicken broth. Simmer 5 minutes until rich gravy forms."
+    ]
+  },
+  {
+    "id": "recipe_021",
+    "title": "Creamy Garlic Mashed Potatoes",
+    "servings": 8,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 20,
+    "tags": [
+      "thanksgiving",
+      "holiday",
+      "side",
+      "potatoes",
+      "potato",
+      "comfort",
+      "cozy",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "3 lbs Yukon Gold potatoes, peeled and quartered",
+      "0.5 cup unsalted butter",
+      "0.75 cup whole milk, warmed",
+      "4 cloves garlic, minced",
+      "1.5 tsp salt",
+      "0.5 tsp black pepper",
+      "2 tbsp fresh chives, chopped"
+    ],
+    "instructions": [
+      "Place quartered potatoes in a large pot, cover with cold salted water, and bring to a boil.",
+      "Cook 15-20 minutes until fork tender; drain thoroughly in a colander.",
+      "In a small saucepan, melt butter and simmer minced garlic over low heat for 2 minutes until fragrant.",
+      "Mash potatoes with a potato masher while gradually pouring in warm garlic butter and milk until smooth, rich, and creamy.",
+      "Season with salt and black pepper, and garnish with chopped fresh chives."
+    ]
+  },
+  {
+    "id": "recipe_022",
+    "title": "Traditional Savory Herb Stuffing",
+    "servings": 8,
+    "prep_time_minutes": 20,
+    "cook_time_minutes": 45,
+    "tags": [
+      "thanksgiving",
+      "holiday",
+      "side",
+      "stuffing",
+      "comfort",
+      "dinner",
+      "savory"
+    ],
+    "ingredients": [
+      "10 cups dry bread cubes",
+      "1 medium yellow onion, diced",
+      "3 stalks celery, diced",
+      "0.5 cup unsalted butter",
+      "2 cups low-sodium vegetable broth",
+      "1 tbsp chopped fresh sage",
+      "1 tbsp chopped fresh thyme",
+      "1 large egg, beaten",
+      "1 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Preheat oven to 350\u00b0F (175\u00b0C) and grease a 9x13 inch baking dish.",
+      "Melt butter in a large skillet over medium heat. Saut\u00e9 diced onion and celery for 8 minutes until softened.",
+      "Stir in chopped fresh sage, thyme, salt, and black pepper; cook 1 minute.",
+      "In a large bowl, combine dry bread cubes, saut\u00e9ed vegetables, beaten egg, and vegetable broth. Toss until bread is evenly moistened.",
+      "Spread into prepared baking dish, cover with foil, and bake 30 minutes. Uncover and bake 15 minutes more until top is golden and crisp."
+    ]
   }
 ]

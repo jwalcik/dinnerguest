@@ -124,6 +124,32 @@ class VibeSearchTool:
         required_format = filters.get("format", "").lower()
         required_profile = filters.get("flavor_profile", "").lower()
         required_protein = filters.get("protein", "").lower()
+        required_ingredient = filters.get("ingredient", "").lower()
+
+        # Recognized key culinary ingredient nouns
+        ing_keywords = {
+            "potato": ["potato", "potatoes"],
+            "carrot": ["carrot", "carrots"],
+            "apple": ["apple", "apples"],
+            "turkey": ["turkey"],
+            "chicken": ["chicken"],
+            "beef": ["beef"],
+            "pork": ["pork"],
+            "shrimp": ["shrimp"],
+            "tofu": ["tofu"],
+            "fish": ["fish", "salmon"],
+            "mushroom": ["mushroom", "mushrooms"],
+            "tomato": ["tomato", "tomatoes"],
+            "stuffing": ["stuffing"],
+        }
+
+        specified_ingredients: Set[str] = set()
+        if required_ingredient:
+            specified_ingredients.add(required_ingredient)
+
+        for base_ing, variants in ing_keywords.items():
+            if any(v in query_words for v in variants):
+                specified_ingredients.add(base_ing)
 
         results: List[VibeRecipeResult] = []
 
@@ -139,6 +165,17 @@ class VibeSearchTool:
                 + " "
                 + " ".join(recipe.get("ingredients", [])).lower()
             )
+
+            # Core ingredient requirement check
+            if specified_ingredients:
+                has_all_ingredients = True
+                for ing in specified_ingredients:
+                    variants = ing_keywords.get(ing, [ing])
+                    if not any(v in raw_text for v in variants):
+                        has_all_ingredients = False
+                        break
+                if not has_all_ingredients:
+                    continue
 
             # Filtering constraints
             if required_format:

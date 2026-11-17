@@ -52,10 +52,10 @@ class TestPantrySearchTool(unittest.TestCase):
         self.assertTrue(result.has_more)
         self.assertEqual(result.remaining_count, result.total_matches_count - 5)
 
-        # Verify page 2 retrieves the remainder
+        # Verify page 2 retrieves the next page
         page2 = self.search_tool.search_recipes(user_items, max_missing=3, page=2, page_size=5)
-        self.assertEqual(len(page2.recipes), result.remaining_count)
-        self.assertFalse(page2.has_more)
+        self.assertEqual(len(page2.recipes), min(5, result.remaining_count))
+        self.assertEqual(page2.remaining_count, result.remaining_count - len(page2.recipes))
 
     def test_staple_followup_generation(self):
         # If user has ground beef, tomatoes, onion, garlic - recipe_008 (Bolognese) is missing pasta and olive oil

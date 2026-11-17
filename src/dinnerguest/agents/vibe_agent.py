@@ -69,6 +69,24 @@ class VibeRecommendationAgent:
                 if "flavor_profile" not in state.preferences:
                     state.preferences["flavor_profile"] = "savory"
 
+        # Check for specific ingredient clues
+        if "potato" in lower or "potatoes" in lower:
+            state.preferences["ingredient"] = "potato"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
+        elif "carrot" in lower or "carrots" in lower:
+            state.preferences["ingredient"] = "carrot"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
+        elif "apple" in lower or "apples" in lower:
+            state.preferences["ingredient"] = "apple"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "sweet"
+        elif "stuffing" in lower:
+            state.preferences["ingredient"] = "stuffing"
+            if "flavor_profile" not in state.preferences:
+                state.preferences["flavor_profile"] = "savory"
+
         # Check for format clues
         if "noodle" in lower or "noodles" in lower or "pasta" in lower or "ramen" in lower:
             state.preferences["format"] = "noodle"

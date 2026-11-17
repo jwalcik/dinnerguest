@@ -100,6 +100,40 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("Chicken Noodle Soup", result["reply"])
         self.assertIn("Allergen Notice", result["reply"])
 
+    def test_thanksgiving_dinner_planning(self):
+        result = _execute_agent_turn(
+            user_msg="I need to plan Thanksgiving dinner",
+            session_id="test_sess_tg",
+            trace_id="test_trace_tg",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Thanksgiving Dinner", result["reply"])
+        self.assertIn("Turkey Breast", result["reply"])
+        self.assertIn("Mashed Potatoes", result["reply"])
+        self.assertIn("Stuffing", result["reply"])
+        self.assertIn("Apple Cinnamon Crisp", result["reply"])
+        self.assertIn("Allergen Profile", result["reply"])
+
+    def test_spicy_potato_dish(self):
+        result = _execute_agent_turn(
+            user_msg="I'd like to make a spicy potato dish",
+            session_id="test_sess_potato",
+            trace_id="test_trace_potato",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Crispy Spicy Garlic Roasted Potatoes", result["reply"])
+        self.assertNotIn("Dan Dan Pork", result["reply"])
+
+    def test_spicy_carrot_dish(self):
+        result = _execute_agent_turn(
+            user_msg="I'd like to make a spicy carrot dish",
+            session_id="test_sess_carrot",
+            trace_id="test_trace_carrot",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Spicy Honey-Glazed Roasted Carrots", result["reply"])
+        self.assertNotIn("Dan Dan Pork", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

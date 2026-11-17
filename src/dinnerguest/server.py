@@ -778,10 +778,177 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             "data": resp.to_dict(),
         }
 
-    # 6. Event Menu / Grocery List Request
-    if "event" in lower or "party" in lower or "menu" in lower or "grocery" in lower or "shopping list" in lower:
-        events.append({"type": "thought", "text": "Accessing persistent event menu store and grocery aggregator..."})
+    # 6. Event Menu / Thanksgiving / Grocery List Request
+    is_thanksgiving = "thanksgiving" in lower
+    is_dinner_planning = ("plan" in lower or "planning" in lower) and ("dinner" in lower or "meal" in lower or "feast" in lower)
+    is_event_menu = any(k in lower for k in ["event", "party", "menu", "grocery", "shopping list"]) or is_thanksgiving or is_dinner_planning
+
+    if is_event_menu:
         from dinnerguest.agent import _menu_agent
+        from dinnerguest.tools.vibe_search_tool import VibeSearchTool
+        vibe_tool = VibeSearchTool()
+        by_id = {r["id"]: r for r in vibe_tool.recipes}
+
+        # 6a. Thanksgiving Feast Planning
+        if is_thanksgiving:
+            events.append({"type": "thought", "text": "Detected Thanksgiving event request. Planning multi-course feast, scaling servings, and verifying allergen safety..."})
+            guest_count = 8
+            m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
+            if m and int(m.group(1)) > 0:
+                guest_count = int(m.group(1))
+
+            dishes = [
+                {
+                    "recipe_id": "recipe_020",
+                    "recipe_title": by_id.get("recipe_020", {}).get("title", "Herb-Roasted Turkey Breast with Pan Gravy"),
+                    "course": "Main",
+                    "original_servings": by_id.get("recipe_020", {}).get("servings", 8),
+                    "ingredients": by_id.get("recipe_020", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_021",
+                    "recipe_title": by_id.get("recipe_021", {}).get("title", "Creamy Garlic Mashed Potatoes"),
+                    "course": "Side",
+                    "original_servings": by_id.get("recipe_021", {}).get("servings", 8),
+                    "ingredients": by_id.get("recipe_021", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_022",
+                    "recipe_title": by_id.get("recipe_022", {}).get("title", "Traditional Savory Herb Stuffing"),
+                    "course": "Side",
+                    "original_servings": by_id.get("recipe_022", {}).get("servings", 8),
+                    "ingredients": by_id.get("recipe_022", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_012",
+                    "recipe_title": by_id.get("recipe_012", {}).get("title", "Cozy Warm Apple Cinnamon Crisp"),
+                    "course": "Dessert",
+                    "original_servings": by_id.get("recipe_012", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_012", {}).get("ingredients", []),
+                },
+            ]
+
+            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": "Thanksgiving Dinner", "guest_count": guest_count}})
+            summary = _menu_agent.plan_and_save_event_menu(
+                name="Thanksgiving Dinner",
+                guest_count=guest_count,
+                dishes=dishes,
+                theme="Traditional Thanksgiving Feast",
+                notes="Herb roasted turkey breast with gravy, garlic mashed potatoes, herb stuffing, and warm apple cinnamon crisp.",
+                auto_scale=True,
+            )
+            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": "Thanksgiving Dinner"}, "result": summary.to_dict()})
+
+            reply_lines = [
+                f"🦃 **Thanksgiving Dinner Feast Planned & Scaled for {guest_count} Guests**",
+                "",
+                "I've designed a classic Thanksgiving menu, scaled all recipes to your guest count, and saved the menu to persistent memory:",
+                "",
+                "### 🍽️ Planned Courses:",
+                f"1. **Main Course**: **{dishes[0]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Herb-basted roasted turkey breast with aromatic poultry herbs and rich pan gravy.",
+                f"2. **Side Dish**: **{dishes[1]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Fluffy russet potatoes with roasted garlic, warm butter, and cream.",
+                f"3. **Side Dish**: **{dishes[2]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Rustic bread cubes baked with fresh sage, thyme, celery, and savory broth.",
+                f"4. **Dessert**: **{dishes[3]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Cinnamon-spiced apples baked under a golden brown oat streusel.",
+                "",
+                "---",
+                "### 🛡️ Consolidated Allergen Profile:",
+                f"- **Detected Allergens**: {', '.join(summary.consolidated_allergens) if summary.consolidated_allergens else 'None'}",
+                "- **Safety Accommodations**: Contains dairy, wheat/gluten, and egg. Peanut, tree nut, shellfish, and soy free.",
+                "",
+                "---",
+                "### 📋 Next Steps:",
+                "- Prompt **\"grocery list\"** to view an aisle-organized shopping list with package approximations.",
+                f"- Prompt **\"scale to 12 guests\"** if you need to adjust portion sizes for more guests.",
+            ]
+
+            return {
+                "reply": "\n".join(reply_lines),
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": summary.to_dict(),
+            }
+
+        # 6b. Multi-Course Dinner Party Planning
+        if "party" in lower or "3-course" in lower or is_dinner_planning:
+            events.append({"type": "thought", "text": "Planning multi-course dinner party menu with course balance and allergen profile..."})
+            guest_count = 8
+            m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
+            if m and int(m.group(1)) > 0:
+                guest_count = int(m.group(1))
+
+            dishes = [
+                {
+                    "recipe_id": "recipe_010",
+                    "recipe_title": by_id.get("recipe_010", {}).get("title", "Fresh Basil and Pine Nut Pesto Pasta"),
+                    "course": "Appetizer",
+                    "original_servings": by_id.get("recipe_010", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_010", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_001",
+                    "recipe_title": by_id.get("recipe_001", {}).get("title", "Classic Italian Meatballs with Rich Marinara"),
+                    "course": "Main",
+                    "original_servings": by_id.get("recipe_001", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_001", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_011",
+                    "recipe_title": by_id.get("recipe_011", {}).get("title", "Classic Chocolate Chip Cookies"),
+                    "course": "Dessert",
+                    "original_servings": by_id.get("recipe_011", {}).get("servings", 12),
+                    "ingredients": by_id.get("recipe_011", {}).get("ingredients", []),
+                },
+            ]
+
+            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": "Dinner Party", "guest_count": guest_count}})
+            summary = _menu_agent.plan_and_save_event_menu(
+                name="Dinner Party",
+                guest_count=guest_count,
+                dishes=dishes,
+                theme="Italian Dinner Party",
+                notes="Classic multi-course Italian dinner party menu.",
+                auto_scale=True,
+            )
+            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": "Dinner Party"}, "result": summary.to_dict()})
+
+            reply_lines = [
+                f"🎉 **3-Course Dinner Party Planned & Scaled for {guest_count} Guests**",
+                "",
+                "I've planned a balanced 3-course dinner party menu, scaled portions, and saved it to persistent memory:",
+                "",
+                "### 🍽️ Planned Courses:",
+                f"1. **Starter**: **{dishes[0]['recipe_title']}** (Scaled to {guest_count} servings)",
+                f"2. **Main Course**: **{dishes[1]['recipe_title']}** (Scaled to {guest_count} servings)",
+                f"3. **Dessert**: **{dishes[2]['recipe_title']}** (Scaled to {guest_count} servings)",
+                "",
+                "---",
+                "### 🛡️ Consolidated Allergen Profile:",
+                f"- **Detected Allergens**: {', '.join(summary.consolidated_allergens) if summary.consolidated_allergens else 'None'}",
+                "",
+                "---",
+                "### 📋 Next Steps:",
+                "- Prompt **\"grocery list\"** for the complete supermarket shopping list by aisle.",
+            ]
+
+            return {
+                "reply": "\n".join(reply_lines),
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": summary.to_dict(),
+            }
+
+        # 6c. Grocery List Generation
+        events.append({"type": "thought", "text": "Accessing persistent event menu store and grocery aggregator..."})
         events.append({"type": "tool_call", "tool": "list_event_menus", "args": {}})
         menus = _menu_agent.list_saved_menus()
         events.append({"type": "tool_result", "tool": "list_event_menus", "args": {}, "result": menus})
@@ -793,11 +960,12 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 glist = _menu_agent.generate_menu_grocery_list(first_menu)
                 events.append({"type": "tool_result", "tool": "generate_grocery_list_for_menu", "args": {"name_or_id": first_menu}, "result": glist.to_dict() if glist else {}})
                 if glist:
-                    lines = [f"🛒 Consolidated Grocery List for '{first_menu}' ({glist.total_items} items):"]
-                    for aisle, items in glist.by_aisle.items():
-                        lines.append(f"\n[{aisle}]")
+                    lines = [f"🛒 **Consolidated Grocery List for '{first_menu}'** ({len(glist.items)} items across aisles):"]
+                    for aisle, items in glist.aisle_groups.items():
+                        lines.append(f"\n**[{aisle}]**")
                         for itm in items:
-                            lines.append(f"• {itm.ingredient} ({itm.quantity} {itm.unit})")
+                            pkg = f" *({itm.packaging_note})*" if itm.packaging_note else ""
+                            lines.append(f"• {itm.display_quantity} {itm.canonical_name}{pkg}")
                     return {
                         "reply": "\n".join(lines),
                         "session_id": session_id,
@@ -824,7 +992,7 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
         "crisp", "pesto", "bolognese", "taco", "tacos", "meatball", "meatballs",
         "burger", "burgers", "chicken", "beef", "pork", "pasta", "noodles",
         "how to cook", "how to make", "how do i make", "how do i cook", "how do you make",
-        "dinner", "lunch", "dessert", "cook", "prepare", "make",
+        "lunch", "dessert", "cook", "prepare", "make",
     ]
     if any(k in lower for k in recipe_clues):
         events.append({"type": "thought", "text": "Searching culinary database and recipe catalog for matching instructions and allergen profile..."})
