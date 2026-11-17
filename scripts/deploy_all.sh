@@ -22,7 +22,7 @@ Usage:
 Options:
   --all                   Deploy all components sequentially (Default)
   --service <name>        Deploy or re-deploy only the specified component
-                          Supported: gcs, firestore, cloud-sql, agent-engine
+                          Supported: gcs, firestore, cloud-sql, agent-engine, iap
   --skip <name>           Skip a specific component during deployment (can specify multiple)
   --help, -h              Show this help menu
 
@@ -31,6 +31,7 @@ Direct Service Shortcuts:
   ./scripts/deploy_all.sh firestore     Deploy only Firestore
   ./scripts/deploy_all.sh cloud-sql     Deploy only Cloud SQL (PostgreSQL + pgvector)
   ./scripts/deploy_all.sh agent-engine  Deploy only Agent Engine / Cloud Run
+  ./scripts/deploy_all.sh iap           Deploy only IAP & Load Balancer
 
 Note:
   Each individual script under scripts/deploy_*.sh can also be executed
@@ -81,6 +82,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         agent-engine|agent|cloud-run|run)
             TARGET_SERVICE="agent-engine"
+            shift
+            ;;
+        iap|load-balancer|lb)
+            TARGET_SERVICE="iap"
             shift
             ;;
         *)
@@ -153,12 +158,16 @@ case "$TARGET_SERVICE" in
     agent-engine)
         run_component "Dinnerguest Agent Engine / Cloud Run" "deploy_agent_engine.sh"
         ;;
+    iap)
+        run_component "Identity-Aware Proxy & Load Balancer" "deploy_iap.sh"
+        ;;
     all)
         log_info "Initiating full sequential deployment of all components..."
         run_component "gcs" "deploy_gcs.sh"
         run_component "firestore" "deploy_firestore.sh"
         run_component "cloud-sql" "deploy_cloud_sql.sh"
         run_component "agent-engine" "deploy_agent_engine.sh"
+        run_component "iap" "deploy_iap.sh"
         ;;
     *)
         log_error "Unrecognized target service: $TARGET_SERVICE"
