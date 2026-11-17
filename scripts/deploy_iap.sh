@@ -138,11 +138,18 @@ fi
 # 6. Global Backend Service with Serverless NEG
 log_step "Configuring Backend Service '$BACKEND_SERVICE_NAME'..."
 if gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
-    log_info "Backend service '$BACKEND_SERVICE_NAME' already exists."
-else
+    EXISTING_PORT_NAME=$(gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" --format="value(portName)" 2>/dev/null || true)
+    if [[ -n "$EXISTING_PORT_NAME" ]]; then
+        log_warn "Existing Backend Service '$BACKEND_SERVICE_NAME' has portName='$EXISTING_PORT_NAME', which is incompatible with Serverless NEGs. Recreating..."
+        gcloud compute backend-services delete "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" --quiet
+    else
+        log_info "Backend service '$BACKEND_SERVICE_NAME' already exists."
+    fi
+fi
+
+if ! gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     gcloud compute backend-services create "$BACKEND_SERVICE_NAME" \
         --load-balancing-scheme=EXTERNAL_MANAGED \
-        --protocol=HTTPS \
         --global \
         --project="$PROJECT_ID" \
         --quiet
