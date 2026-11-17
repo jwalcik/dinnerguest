@@ -65,6 +65,20 @@ else
     log_success "Created Artifact Registry repository '$DOCKER_REPO'"
 fi
 
+# Ensure Cloud Build service accounts have permission to push images to Artifact Registry
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)" 2>/dev/null || true)
+if [[ -n "$PROJECT_NUMBER" ]]; then
+    log_info "Configuring Artifact Registry Writer permissions for Cloud Build service accounts..."
+    for build_sa in "${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"; do
+        gcloud artifacts repositories add-iam-policy-binding "$DOCKER_REPO" \
+            --location="$REGION" \
+            --project="$PROJECT_ID" \
+            --member="serviceAccount:${build_sa}" \
+            --role="roles/artifactregistry.writer" \
+            --quiet &>/dev/null || true
+    done
+fi
+
 # 5. Build Container Image via Cloud Build
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${DOCKER_REPO}/${AGENT_SERVICE_NAME}:latest"
