@@ -12,15 +12,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy configuration and install dependencies
-COPY pyproject.toml .
+# Upgrade pip and install core server and Google Cloud dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir . && \
-    pip install --no-cache-dir fastapi uvicorn "google-cloud-storage>=2.10.0" "google-cloud-firestore>=2.13.0"
+    pip install --no-cache-dir \
+        fastapi \
+        uvicorn \
+        pydantic \
+        python-dotenv \
+        "google-cloud-storage>=2.10.0" \
+        "google-cloud-firestore>=2.13.0" \
+        "google-cloud-aiplatform>=1.40.0" \
+        "google-genai>=0.1.0"
 
-# Copy source code and test fixtures
+# Copy project definitions, documentation, source code, and test fixtures
+COPY pyproject.toml README.md ./
 COPY src/ src/
 COPY tests/fixtures/ tests/fixtures/
+
+# Install local package
+RUN pip install --no-cache-dir .
 
 ENV PYTHONPATH=/app/src
 
