@@ -135,9 +135,13 @@ class VibeSearchTool:
             "chicken": ["chicken"],
             "beef": ["beef"],
             "pork": ["pork"],
-            "shrimp": ["shrimp"],
+            "tuna": ["tuna", "ahi"],
+            "salmon": ["salmon"],
+            "fish": ["fish", "salmon", "tuna", "cod", "halibut", "tilapia", "ahi"],
+            "seafood": ["shrimp", "fish", "tuna", "salmon", "seafood", "prawn"],
+            "shrimp": ["shrimp", "prawn", "prawns"],
+            "lamb": ["lamb"],
             "tofu": ["tofu"],
-            "fish": ["fish", "salmon"],
             "mushroom": ["mushroom", "mushrooms"],
             "tomato": ["tomato", "tomatoes"],
             "stuffing": ["stuffing"],
@@ -146,14 +150,35 @@ class VibeSearchTool:
         specified_ingredients: Set[str] = set()
         if required_ingredient:
             specified_ingredients.add(required_ingredient)
+        if required_protein:
+            specified_ingredients.add(required_protein)
 
         for base_ing, variants in ing_keywords.items():
             if any(v in query_words for v in variants):
                 specified_ingredients.add(base_ing)
 
+        # Check if dynamic database query returns additional recipes from Cloud SQL
+        candidate_pool = list(self.recipes)
+        try:
+            from dinnerguest.database import search_recipes_in_db
+            primary_ing = required_ingredient or required_protein or (list(specified_ingredients)[0] if specified_ingredients else None)
+            db_candidates = search_recipes_in_db(
+                query_text=query,
+                ingredient=primary_ing,
+                limit=limit * 3,
+            )
+            if db_candidates:
+                existing_ids = {r["id"] for r in candidate_pool}
+                for db_r in db_candidates:
+                    if db_r["id"] not in existing_ids:
+                        candidate_pool.append(db_r)
+                        existing_ids.add(db_r["id"])
+        except Exception:
+            pass
+
         results: List[VibeRecipeResult] = []
 
-        for recipe in self.recipes:
+        for recipe in candidate_pool:
             title_lower = recipe["title"].lower()
             recipe_tags = set(t.lower() for t in recipe.get("tags", []))
             raw_text = (

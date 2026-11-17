@@ -134,6 +134,41 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("Spicy Honey-Glazed Roasted Carrots", result["reply"])
         self.assertNotIn("Dan Dan Pork", result["reply"])
 
+    def test_spicy_tuna_dish(self):
+        result = _execute_agent_turn(
+            user_msg="I'd like to cook a spicy tuna dish",
+            session_id="test_sess_tuna",
+            trace_id="test_trace_tuna",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Spicy Seared Ahi Tuna Steaks", result["reply"])
+        self.assertNotIn("Dan Dan Pork", result["reply"])
+
+    def test_easter_lunch_planning(self):
+        result = _execute_agent_turn(
+            user_msg="i would like to plan easter lunch",
+            session_id="test_sess_easter",
+            trace_id="test_trace_easter",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Easter Lunch Feast Planned", result["reply"])
+        self.assertIn("Tomato Basil Soup", result["reply"])
+        self.assertIn("Turkey Breast", result["reply"])
+        self.assertIn("Roasted Carrots", result["reply"])
+        self.assertIn("Mashed Potatoes", result["reply"])
+        self.assertIn("Apple Cinnamon Crisp", result["reply"])
+        # Verify tool call was plan_and_save_event_menu
+        tool_calls = [e for e in result["events"] if e.get("type") == "tool_call"]
+        self.assertTrue(any(tc.get("tool") == "plan_and_save_event_menu" for tc in tool_calls))
+
+    def test_database_status(self):
+        from dinnerguest.database import get_database_status
+        status = get_database_status()
+        self.assertIn("configured", status)
+        self.assertIn("connected", status)
+        self.assertIn("driver", status)
+        self.assertIn("recipe_count", status)
+
 
 if __name__ == "__main__":
     unittest.main()

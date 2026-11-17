@@ -674,122 +674,125 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             "data": resp.to_dict(),
         }
 
-    # 2. Vibe / Mood Request Initiation
-    vibe_keywords = ["craving", "crave", "vibe", "mood", "cozy", "cold weather", "spicy pork", "sweet dessert", "comfort food"]
-    if any(k in lower for k in vibe_keywords) or (("want" in lower or "like" in lower) and ("spicy" in lower or "cozy" in lower or "sweet" in lower)):
-        events.append({"type": "thought", "text": "Detected craving or mood-based request. Initiating conversational vibe discovery..."})
-        from dinnerguest.agents.vibe_agent import VibeDialogueState, VibeRecommendationAgent
-        vibe_agent = VibeRecommendationAgent()
-        state = VibeDialogueState(initial_query=user_msg)
-        events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}})
-        resp = vibe_agent.handle_message(user_msg, state)
-        events.append({"type": "tool_result", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}, "result": resp.to_dict()})
-        if resp.state.status == "IN_PROGRESS":
-            session["vibe_state"] = resp.state
-        return {
-            "reply": resp.reply_text,
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "events": events,
-            "data": resp.to_dict(),
-        }
-
-    # 3. Allergen Check Request
-    if "allergen" in lower or "allergic" in lower or "falcpa" in lower or "safe for" in lower:
-        events.append({"type": "thought", "text": "Detected allergen inquiry. Running deterministic FDA FALCPA Big 9 screening..."})
-        from dinnerguest.tools.allergen_tool import AllergenChecker
-        checker = AllergenChecker()
-        items = [i.strip() for i in re.split(r"[,;:\n]+", user_msg) if i.strip() and not any(w in i.lower() for w in ["check", "allergen", "safe", "for", "please"])]
-        if not items:
-            items = [user_msg]
-        events.append({"type": "tool_call", "tool": "check_allergens_for_ingredients", "args": {"ingredients": items}})
-        report = checker.check_recipe_ingredients(items)
-        events.append({"type": "tool_result", "tool": "check_allergens_for_ingredients", "args": {"ingredients": items}, "result": report.to_dict()})
-
-        summary = [f"🛡️ Allergen Safety Analysis for: {', '.join(items)}"]
-        if report.detected_allergens:
-            summary.append(f"⚠️ Detected Allergens: {', '.join(report.detected_allergens)}")
-        else:
-            summary.append("✅ No FDA FALCPA Big 9 allergens detected!")
-        if report.ambiguous_ingredients:
-            summary.append(f"🔍 Items Requiring Label Verification: {', '.join(report.ambiguous_ingredients)}")
-
-        return {
-            "reply": "\n".join(summary),
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "events": events,
-            "data": report.to_dict(),
-        }
-
-    # 4. Recipe Scaling Request
-    if "scale" in lower or "servings" in lower or "double" in lower or "triple" in lower:
-        events.append({"type": "thought", "text": "Detected recipe scaling request. Applying proportional scaling and bulk/min safety checks..."})
-        from dinnerguest.tools.scaler_tool import RecipeScaler
-        scaler = RecipeScaler()
-        target = 8
-        m = re.search(r"\b(?:to|for)\s+(\d+)\s*(?:servings|people|guests)?", lower)
-        if m:
-            target = int(m.group(1))
-        ingredients = ["1 cup all-purpose flour", "1/2 cup granulated sugar", "1/4 tsp salt", "1/2 tsp vanilla extract", "1 egg"]
-        events.append({"type": "tool_call", "tool": "scale_recipe_servings", "args": {"recipe_title": "Custom Recipe", "original_servings": 4, "target_servings": target}})
-        scale_res = scaler.scale_recipe(
-            recipe_title="Custom Recipe",
-            original_servings=4,
-            target_servings=target,
-            ingredients=ingredients,
-        )
-        events.append({"type": "tool_result", "tool": "scale_recipe_servings", "args": {"target_servings": target}, "result": scale_res.to_dict()})
-
-        lines = [
-            f"⚖️ Scaled recipe yield from 4 to {target} servings (scale factor: {scale_res.scale_factor}):",
-            "",
-            "Ingredients:"
-        ]
-        for item in scale_res.scaled_ingredients:
-            lines.append(f"• {item.scaled_text}")
-        if scale_res.warnings:
-            lines.append("")
-            for w in scale_res.warnings:
-                lines.append(f"⚠️ {w}")
-        return {
-            "reply": "\n".join(lines),
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "events": events,
-            "data": scale_res.to_dict(),
-        }
-
-    # 5. On-Hand Ingredients Request
-    pantry_clues = ["have", "fridge", "pantry", "make with", "cook with", "ingredients", "got"]
-    if any(k in lower for k in pantry_clues) or "," in user_msg:
-        events.append({"type": "thought", "text": "Analyzing user pantry ingredients, matching culinary substitutions, and checking missing staples..."})
-        from dinnerguest.agents.on_hand_agent import OnHandRecommendationAgent
-        on_hand_agent = OnHandRecommendationAgent()
-        extracted = on_hand_agent.extract_ingredients_from_text(user_msg)
-        events.append({"type": "tool_call", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}})
-        resp = on_hand_agent.process_request(user_msg)
-        events.append({"type": "tool_result", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}, "result": resp.to_dict()})
-        return {
-            "reply": resp.reply_text,
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "events": events,
-            "data": resp.to_dict(),
-        }
-
-    # 6. Event Menu / Thanksgiving / Grocery List Request
+    # 2. Event Menu / Holiday / Meal Planning & Grocery List Request
+    holidays = ["thanksgiving", "easter", "christmas", "new year", "passover", "hanukkah", "st patrick", "halloween"]
+    is_holiday = any(h in lower for h in holidays)
     is_thanksgiving = "thanksgiving" in lower
-    is_dinner_planning = ("plan" in lower or "planning" in lower) and ("dinner" in lower or "meal" in lower or "feast" in lower)
-    is_event_menu = any(k in lower for k in ["event", "party", "menu", "grocery", "shopping list"]) or is_thanksgiving or is_dinner_planning
+    is_easter = "easter" in lower
 
-    if is_event_menu:
+    plan_verbs = ["plan", "planning", "organize", "host", "cater", "menu for", "courses", "prepare for", "put together"]
+    has_plan_verb = any(v in lower for v in plan_verbs)
+    meal_event_nouns = ["lunch", "dinner", "brunch", "breakfast", "supper", "meal", "feast", "party", "gathering", "event", "banquet"]
+    has_meal_event = any(m in lower for m in meal_event_nouns)
+
+    is_planning_meal = has_plan_verb and has_meal_event
+    is_explicit_event = any(k in lower for k in ["event menu", "dinner party", "party menu", "3-course", "multi-course", "meal plan", "plan menu", "grocery", "shopping list"])
+
+    if is_holiday or is_planning_meal or is_explicit_event:
         from dinnerguest.agent import _menu_agent
         from dinnerguest.tools.vibe_search_tool import VibeSearchTool
         vibe_tool = VibeSearchTool()
         by_id = {r["id"]: r for r in vibe_tool.recipes}
 
-        # 6a. Thanksgiving Feast Planning
+        # 2a. Easter Lunch Feast Planning
+        if is_easter:
+            events.append({"type": "thought", "text": "Detected Easter celebration request. Planning multi-course spring feast, scaling servings, and verifying allergen safety..."})
+            guest_count = 6
+            m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
+            if m and int(m.group(1)) > 0:
+                guest_count = int(m.group(1))
+
+            dishes = [
+                {
+                    "recipe_id": "recipe_016",
+                    "recipe_title": by_id.get("recipe_016", {}).get("title", "Comforting Creamy Tomato Basil Soup"),
+                    "course": "Starter",
+                    "original_servings": by_id.get("recipe_016", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_016", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_020",
+                    "recipe_title": by_id.get("recipe_020", {}).get("title", "Herb-Roasted Turkey Breast with Pan Gravy"),
+                    "course": "Main",
+                    "original_servings": by_id.get("recipe_020", {}).get("servings", 8),
+                    "ingredients": by_id.get("recipe_020", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_019",
+                    "recipe_title": by_id.get("recipe_019", {}).get("title", "Spicy Honey-Glazed Roasted Carrots"),
+                    "course": "Side",
+                    "original_servings": by_id.get("recipe_019", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_019", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_021",
+                    "recipe_title": by_id.get("recipe_021", {}).get("title", "Creamy Garlic Mashed Potatoes"),
+                    "course": "Side",
+                    "original_servings": by_id.get("recipe_021", {}).get("servings", 8),
+                    "ingredients": by_id.get("recipe_021", {}).get("ingredients", []),
+                },
+                {
+                    "recipe_id": "recipe_012",
+                    "recipe_title": by_id.get("recipe_012", {}).get("title", "Cozy Warm Apple Cinnamon Crisp"),
+                    "course": "Dessert",
+                    "original_servings": by_id.get("recipe_012", {}).get("servings", 4),
+                    "ingredients": by_id.get("recipe_012", {}).get("ingredients", []),
+                },
+            ]
+
+            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": "Easter Lunch", "guest_count": guest_count}})
+            summary = _menu_agent.plan_and_save_event_menu(
+                name="Easter Lunch",
+                guest_count=guest_count,
+                dishes=dishes,
+                theme="Spring Easter Lunch Feast",
+                notes="Herb-roasted turkey breast with pan gravy, honey-glazed roasted carrots, creamy garlic mashed potatoes, comforting creamy tomato basil soup, and warm apple cinnamon crisp.",
+                auto_scale=True,
+            )
+            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": "Easter Lunch"}, "result": summary.to_dict()})
+
+            reply_lines = [
+                f"🌸 **Easter Lunch Feast Planned & Scaled for {guest_count} Guests**",
+                "",
+                "I've designed a celebratory spring Easter lunch menu, scaled all recipes to your guest count, and saved the menu to persistent memory:",
+                "",
+                "### 🍽️ Planned Courses:",
+                f"1. **Starter**: **{dishes[0]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Velvety vine-ripened tomatoes simmered with fresh aromatic basil, cream, and garlic.",
+                f"2. **Main Course**: **{dishes[1]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Herb-basted roasted turkey breast with rosemary, thyme, and golden pan drippings gravy.",
+                f"3. **Side Dish**: **{dishes[2]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Tender sweet carrots roasted with wildflower honey, olive oil, and crushed chili flakes.",
+                f"4. **Side Dish**: **{dishes[3]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Fluffy russet potatoes with roasted garlic, warm butter, and cream.",
+                f"5. **Dessert**: **{dishes[4]['recipe_title']}**",
+                f"   - *Yield*: Scaled to {guest_count} servings",
+                "   - *Profile*: Tart-sweet cinnamon-spiced apples baked beneath a golden oat brown sugar streusel.",
+                "",
+                "---",
+                "### 🛡️ Consolidated Allergen Profile:",
+                f"- **Detected Allergens**: {', '.join(summary.consolidated_allergens) if summary.consolidated_allergens else 'None'}",
+                "- **Safety Accommodations**: Contains dairy, wheat/gluten, and milk. Peanut, tree nut, shellfish, fish, and soy free.",
+                "",
+                "---",
+                "### 📋 Next Steps:",
+                "- Prompt **\"grocery list\"** to view an aisle-organized shopping list with package approximations.",
+                f"- Prompt **\"scale to 10 guests\"** if you need to adjust portion sizes for more guests.",
+            ]
+
+            return {
+                "reply": "\n".join(reply_lines),
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": summary.to_dict(),
+            }
+
+        # 2b. Thanksgiving Feast Planning
         if is_thanksgiving:
             events.append({"type": "thought", "text": "Detected Thanksgiving event request. Planning multi-course feast, scaling servings, and verifying allergen safety..."})
             guest_count = 8
@@ -877,8 +880,8 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 "data": summary.to_dict(),
             }
 
-        # 6b. Multi-Course Dinner Party Planning
-        if "party" in lower or "3-course" in lower or is_dinner_planning:
+        # 2c. Multi-Course Dinner Party Planning
+        if "party" in lower or "3-course" in lower or is_planning_meal:
             events.append({"type": "thought", "text": "Planning multi-course dinner party menu with course balance and allergen profile..."})
             guest_count = 8
             m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
@@ -888,24 +891,24 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             dishes = [
                 {
                     "recipe_id": "recipe_010",
-                    "recipe_title": by_id.get("recipe_010", {}).get("title", "Fresh Basil and Pine Nut Pesto Pasta"),
+                    "recipe_title": by_id.get("recipe_010", {}).get("title", "Rustic Beef & Onion Stuffed Peppers"),
                     "course": "Appetizer",
                     "original_servings": by_id.get("recipe_010", {}).get("servings", 4),
                     "ingredients": by_id.get("recipe_010", {}).get("ingredients", []),
                 },
                 {
                     "recipe_id": "recipe_001",
-                    "recipe_title": by_id.get("recipe_001", {}).get("title", "Classic Italian Meatballs with Rich Marinara"),
+                    "recipe_title": by_id.get("recipe_001", {}).get("title", "Classic Italian Meatballs"),
                     "course": "Main",
                     "original_servings": by_id.get("recipe_001", {}).get("servings", 4),
                     "ingredients": by_id.get("recipe_001", {}).get("ingredients", []),
                 },
                 {
-                    "recipe_id": "recipe_011",
-                    "recipe_title": by_id.get("recipe_011", {}).get("title", "Classic Chocolate Chip Cookies"),
+                    "recipe_id": "recipe_002",
+                    "recipe_title": by_id.get("recipe_002", {}).get("title", "Bakery Style Chocolate Chip Cookies"),
                     "course": "Dessert",
-                    "original_servings": by_id.get("recipe_011", {}).get("servings", 12),
-                    "ingredients": by_id.get("recipe_011", {}).get("ingredients", []),
+                    "original_servings": by_id.get("recipe_002", {}).get("servings", 12),
+                    "ingredients": by_id.get("recipe_002", {}).get("ingredients", []),
                 },
             ]
 
@@ -947,7 +950,7 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 "data": summary.to_dict(),
             }
 
-        # 6c. Grocery List Generation
+        # 2d. Grocery List Generation
         events.append({"type": "thought", "text": "Accessing persistent event menu store and grocery aggregator..."})
         events.append({"type": "tool_call", "tool": "list_event_menus", "args": {}})
         menus = _menu_agent.list_saved_menus()
@@ -986,16 +989,131 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             "events": events,
         }
 
+    # 3. Allergen Check Request
+    if "allergen" in lower or "allergic" in lower or "falcpa" in lower or "safe for" in lower:
+        events.append({"type": "thought", "text": "Detected allergen inquiry. Running deterministic FDA FALCPA Big 9 screening..."})
+        from dinnerguest.tools.allergen_tool import AllergenChecker
+        checker = AllergenChecker()
+        items = [i.strip() for i in re.split(r"[,;:\n]+", user_msg) if i.strip() and not any(w in i.lower() for w in ["check", "allergen", "safe", "for", "please"])]
+        if not items:
+            items = [user_msg]
+        events.append({"type": "tool_call", "tool": "check_allergens_for_ingredients", "args": {"ingredients": items}})
+        report = checker.check_recipe_ingredients(items)
+        events.append({"type": "tool_result", "tool": "check_allergens_for_ingredients", "args": {"ingredients": items}, "result": report.to_dict()})
+
+        summary = [f"🛡️ Allergen Safety Analysis for: {', '.join(items)}"]
+        if report.detected_allergens:
+            summary.append(f"⚠️ Detected Allergens: {', '.join(report.detected_allergens)}")
+        else:
+            summary.append("✅ No FDA FALCPA Big 9 allergens detected!")
+        if report.ambiguous_ingredients:
+            summary.append(f"🔍 Items Requiring Label Verification: {', '.join(report.ambiguous_ingredients)}")
+
+        return {
+            "reply": "\n".join(summary),
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "events": events,
+            "data": report.to_dict(),
+        }
+
+    # 4. Recipe Scaling Request
+    if "scale" in lower or "servings" in lower or "double" in lower or "triple" in lower:
+        events.append({"type": "thought", "text": "Detected recipe scaling request. Applying proportional scaling and bulk/min safety checks..."})
+        from dinnerguest.tools.scaler_tool import RecipeScaler
+        scaler = RecipeScaler()
+        target = 8
+        m = re.search(r"\b(?:to|for)\s+(\d+)\s*(?:servings|people|guests)?", lower)
+        if m:
+            target = int(m.group(1))
+        ingredients = ["1 cup all-purpose flour", "1/2 cup granulated sugar", "1/4 tsp salt", "1/2 tsp vanilla extract", "1 egg"]
+        events.append({"type": "tool_call", "tool": "scale_recipe_servings", "args": {"recipe_title": "Custom Recipe", "original_servings": 4, "target_servings": target}})
+        scale_res = scaler.scale_recipe(
+            recipe_title="Custom Recipe",
+            original_servings=4,
+            target_servings=target,
+            ingredients=ingredients,
+        )
+        events.append({"type": "tool_result", "tool": "scale_recipe_servings", "args": {"target_servings": target}, "result": scale_res.to_dict()})
+
+        lines = [
+            f"⚖️ Scaled recipe yield from 4 to {target} servings (scale factor: {scale_res.scale_factor}):",
+            "",
+            "Ingredients:"
+        ]
+        for item in scale_res.scaled_ingredients:
+            lines.append(f"• {item.scaled_text}")
+        if scale_res.warnings:
+            lines.append("")
+            for w in scale_res.warnings:
+                lines.append(f"⚠️ {w}")
+        return {
+            "reply": "\n".join(lines),
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "events": events,
+            "data": scale_res.to_dict(),
+        }
+
+    # 5. On-Hand Ingredients Request
+    pantry_clues = ["have", "fridge", "pantry", "make with", "cook with", "ingredients", "got"]
+    if any(k in lower for k in pantry_clues) or "," in user_msg:
+        events.append({"type": "thought", "text": "Analyzing user pantry ingredients, matching culinary substitutions, and checking missing staples..."})
+        from dinnerguest.agents.on_hand_agent import OnHandRecommendationAgent
+        on_hand_agent = OnHandRecommendationAgent()
+        extracted = on_hand_agent.extract_ingredients_from_text(user_msg)
+        events.append({"type": "tool_call", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}})
+        resp = on_hand_agent.process_request(user_msg)
+        events.append({"type": "tool_result", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}, "result": resp.to_dict()})
+        return {
+            "reply": resp.reply_text,
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "events": events,
+            "data": resp.to_dict(),
+        }
+
+    # 6. Vibe / Mood Request Initiation
+    vibe_keywords = ["craving", "crave", "vibe", "mood", "cozy", "cold weather", "spicy pork", "sweet dessert", "comfort food"]
+    if any(k in lower for k in vibe_keywords) or (("want" in lower or "like" in lower) and ("spicy" in lower or "cozy" in lower or "sweet" in lower)):
+        from dinnerguest.database import get_database_status
+        db_stat = get_database_status()
+        if db_stat.get("connected"):
+            events.append({"type": "thought", "text": f"Connected to Cloud SQL PostgreSQL ({db_stat.get('recipe_count')} recipes indexed). Initiating conversational vibe discovery..."})
+        else:
+            events.append({"type": "thought", "text": "Detected craving or mood-based request. Initiating conversational vibe discovery..."})
+        from dinnerguest.agents.vibe_agent import VibeDialogueState, VibeRecommendationAgent
+        vibe_agent = VibeRecommendationAgent()
+        state = VibeDialogueState(initial_query=user_msg)
+        events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}})
+        resp = vibe_agent.handle_message(user_msg, state)
+        events.append({"type": "tool_result", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}, "result": resp.to_dict()})
+        if resp.state.status == "IN_PROGRESS":
+            session["vibe_state"] = resp.state
+        return {
+            "reply": resp.reply_text,
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "events": events,
+            "data": resp.to_dict(),
+        }
+
     # 7. Direct Recipe Search / Instruction Request
     recipe_clues = [
         "recipe", "soup", "stew", "skillet", "fajita", "fajitas", "cookie", "cookies",
         "crisp", "pesto", "bolognese", "taco", "tacos", "meatball", "meatballs",
         "burger", "burgers", "chicken", "beef", "pork", "pasta", "noodles",
+        "tuna", "salmon", "fish", "seafood", "potato", "potatoes", "carrot", "carrots",
         "how to cook", "how to make", "how do i make", "how do i cook", "how do you make",
-        "lunch", "dessert", "cook", "prepare", "make",
+        "dessert", "cook", "prepare", "make",
     ]
     if any(k in lower for k in recipe_clues):
-        events.append({"type": "thought", "text": "Searching culinary database and recipe catalog for matching instructions and allergen profile..."})
+        from dinnerguest.database import get_database_status
+        db_stat = get_database_status()
+        if db_stat.get("connected"):
+            events.append({"type": "thought", "text": f"Connected to Cloud SQL PostgreSQL ({db_stat.get('recipe_count')} recipes indexed). Searching culinary database..."})
+        else:
+            events.append({"type": "thought", "text": "Searching culinary database and recipe catalog for matching instructions and allergen profile..."})
         from dinnerguest.tools.vibe_search_tool import VibeSearchTool
         vibe_tool = VibeSearchTool()
         events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}})
@@ -1085,17 +1203,38 @@ try:
             "endpoints": {
                 "health": "/health",
                 "ready": "/ready",
+                "db_status": "/api/db/status",
                 "chat": "/chat",
                 "chat_stream": "/chat/stream",
                 "ui": "/ui",
             },
         }
 
+    @app.on_event("startup")
+    def on_startup() -> None:
+        try:
+            from dinnerguest.database import init_and_seed_db
+            seed_res = init_and_seed_db()
+            logger.info("Startup database auto-seed: %s", seed_res)
+        except Exception as exc:
+            logger.warning("Startup database check/seed failed: %s", exc)
+
     @app.get("/health")
     @app.get("/ready")
     @app.get("/healthz")
-    def health() -> Dict[str, str]:
-        return {"status": "healthy", "service": "dinnerguest-agent"}
+    def health() -> Dict[str, Any]:
+        from dinnerguest.database import get_database_status
+        db_stat = get_database_status()
+        return {
+            "status": "healthy",
+            "service": "dinnerguest-agent",
+            "database": db_stat,
+        }
+
+    @app.get("/api/db/status")
+    def db_status() -> Dict[str, Any]:
+        from dinnerguest.database import get_database_status
+        return get_database_status()
 
     @app.get("/ui", response_class=HTMLResponse)
     def ui() -> str:

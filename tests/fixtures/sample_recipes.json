@@ -694,5 +694,44 @@
       "In a large bowl, combine dry bread cubes, saut\u00e9ed vegetables, beaten egg, and vegetable broth. Toss until bread is evenly moistened.",
       "Spread into prepared baking dish, cover with foil, and bake 30 minutes. Uncover and bake 15 minutes more until top is golden and crisp."
     ]
+  },
+  {
+    "id": "recipe_023",
+    "title": "Spicy Seared Ahi Tuna Steaks with Sesame Garlic Glaze",
+    "servings": 4,
+    "prep_time_minutes": 10,
+    "cook_time_minutes": 10,
+    "description": "Fresh ahi tuna steaks encrusted with toasted sesame seeds and seared rare in a smoking-hot skillet, drizzled with a fiery sriracha garlic ginger soy reduction.",
+    "tags": [
+      "spicy",
+      "tuna",
+      "fish",
+      "seafood",
+      "dinner",
+      "quick",
+      "healthy",
+      "savory",
+      "asian-inspired"
+    ],
+    "ingredients": [
+      "4 yellowfin or ahi tuna steaks (approx 6 oz each)",
+      "2 tbsp low-sodium soy sauce",
+      "1 tbsp toasted sesame oil",
+      "1 tbsp sriracha or chili garlic sauce",
+      "1 tbsp honey",
+      "2 cloves garlic, minced",
+      "1 tsp grated fresh ginger",
+      "2 tbsp white and black sesame seeds",
+      "1 tbsp vegetable oil or avocado oil",
+      "2 scallions, thinly sliced"
+    ],
+    "instructions": [
+      "In a small bowl, whisk together soy sauce, toasted sesame oil, sriracha, honey, minced garlic, and grated ginger until blended.",
+      "Pat tuna steaks completely dry with paper towels. Lightly brush both sides of each steak with 1 tablespoon of the sauce mixture, then dredge in sesame seeds to coat.",
+      "Heat vegetable oil in a heavy cast-iron skillet over high heat until it begins to shimmer and smoke lightly.",
+      "Carefully add tuna steaks and sear undisturbed for 1.5 to 2 minutes per side for rare to medium-rare, or 3 minutes per side for medium.",
+      "Remove from heat and let rest for 3 minutes on a cutting board.",
+      "Slice tuna across the grain into 1/4-inch slices, drizzle with the remaining spicy glaze, and garnish with sliced scallions."
+    ]
   }
 ]

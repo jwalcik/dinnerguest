@@ -63,7 +63,12 @@ class VibeRecommendationAgent:
         lower = text.lower()
 
         # Check for protein clues
-        for p in ["pork", "beef", "chicken", "fish", "shrimp", "tofu", "turkey"]:
+        for p in [
+            "pork", "beef", "chicken", "fish", "shrimp", "tofu", "turkey",
+            "tuna", "salmon", "lamb", "seafood", "duck", "crab", "lobster",
+            "scallop", "scallops", "venison", "bacon", "sausage", "halibut",
+            "cod", "tilapia", "clams", "mussels", "squid", "octopus",
+        ]:
             if p in lower:
                 state.preferences["protein"] = p
                 if "flavor_profile" not in state.preferences:
@@ -216,12 +221,31 @@ class VibeRecommendationAgent:
             relaxed_filters = {k: v for k, v in state.preferences.items() if k != "format"}
             candidates = self.vibe_tool.search_by_vibe(combined_query, filters=relaxed_filters, limit=3)
         if not candidates:
-            candidates = self.vibe_tool.search_by_vibe(combined_query, limit=3)
+            # If the user specifically wanted a protein or ingredient, NEVER relax it away to an unrelated dish!
+            has_explicit_ing = "protein" in state.preferences or "ingredient" in state.preferences
+            if not has_explicit_ing:
+                candidates = self.vibe_tool.search_by_vibe(combined_query, limit=3)
 
         if candidates:
             top_recipe = candidates[0]
             state.status = "RECOMMENDED"
             return self._build_recommendation_reply(top_recipe, state)
+
+        # If user explicitly asked for an ingredient/protein not found in catalog or Cloud SQL DB:
+        if "protein" in state.preferences or "ingredient" in state.preferences:
+            target = state.preferences.get("protein") or state.preferences.get("ingredient")
+            state.status = "EXHAUSTED_FALLBACK"
+            msg = (
+                f"I searched our culinary database for **{target}**, but I couldn't find a matching recipe "
+                f"featuring it. Would you like to try another protein or ingredient (such as chicken, beef, seafood, or vegetarian), "
+                f"or explore a different flavor profile?"
+            )
+            return VibeAgentResponse(
+                reply_text=msg,
+                is_clarifying_question=False,
+                state=state,
+                recommended_recipes=[],
+            )
 
         # 6. If no matches yet and below limit, ask an open clarifying question
         if state.clarifying_turn_count < MAX_CLARIFYING_QUESTIONS:
