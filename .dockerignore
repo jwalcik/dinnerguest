@@ -13,3 +13,5 @@ build
 .gemini
 .env
 /data/
+!src/dinnerguest/data/*.json
+!tests/fixtures/*.json

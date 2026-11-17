@@ -220,13 +220,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Dinnerguest project specific
-data/raw/
-data/processed/
-data/saved_menus.json
-data/*.json
+/data/raw/
+/data/processed/
+/data/saved_menus.json
+/data/*.json
 *.duckdb
 *.sqlite
 *.sqlite3
+!src/dinnerguest/data/*.json
 !tests/fixtures/*.json
 .adk/
 *.gcp.json

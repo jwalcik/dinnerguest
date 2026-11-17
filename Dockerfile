@@ -29,6 +29,10 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 COPY tests/fixtures/ tests/fixtures/
 
+# Verify canonical data files are present in the image
+RUN test -f /app/src/dinnerguest/data/allergens_canonical.json && \
+    test -f /app/src/dinnerguest/data/vibe_taxonomy.json
+
 # Install local package in editable mode so /app/src is linked directly
 RUN pip install --no-cache-dir -e .
 
