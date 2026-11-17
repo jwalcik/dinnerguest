@@ -121,8 +121,20 @@ gcloud run deploy "$AGENT_SERVICE_NAME" \
     "${CLOUDSQL_FLAG[@]}" \
     --quiet
 
+# Grant invoker permission to active deploying account
+ACTIVE_ACCOUNT=$(gcloud config get-value account 2>/dev/null || true)
+if [[ -n "$ACTIVE_ACCOUNT" && "$ACTIVE_ACCOUNT" != "(unset)" ]]; then
+    gcloud run services add-iam-policy-binding "$AGENT_SERVICE_NAME" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --member="user:${ACTIVE_ACCOUNT}" \
+        --role="roles/run.invoker" \
+        --quiet &>/dev/null || true
+fi
+
 SERVICE_URL=$(gcloud run services describe "$AGENT_SERVICE_NAME" --project="$PROJECT_ID" --region="$REGION" --format="value(status.url)")
 
 log_success "Agent Engine / Cloud Run service deployed successfully!"
 log_info "Service URL: $SERVICE_URL"
-log_info "Health Check: ${SERVICE_URL}/healthz"
+log_info "Health Check (authenticated):"
+log_info "  curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${SERVICE_URL}/healthz"
