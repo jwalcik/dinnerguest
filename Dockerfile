@@ -29,11 +29,11 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 COPY tests/fixtures/ tests/fixtures/
 
-# Install local package
-RUN pip install --no-cache-dir .
+# Install local package in editable mode so /app/src is linked directly
+RUN pip install --no-cache-dir -e .
 
 ENV PYTHONPATH=/app/src
 
 EXPOSE 8080
 
-CMD ["python3", "-m", "uvicorn", "dinnerguest.server:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python3", "-m", "dinnerguest.server"]

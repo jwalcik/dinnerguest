@@ -133,6 +133,11 @@ class EventMenuStore:
     ) -> None:
         if storage_path:
             self.storage_path = Path(storage_path)
+        elif os.getenv("MENU_STORAGE_PATH"):
+            self.storage_path = Path(os.environ["MENU_STORAGE_PATH"])
+        elif os.getenv("K_SERVICE"):
+            # Cloud Run / Container environment with in-memory tmpfs
+            self.storage_path = Path("/tmp/saved_menus.json")
         else:
             base_dir = Path(__file__).resolve().parent.parent.parent.parent
             self.storage_path = base_dir / "data" / "saved_menus.json"
@@ -172,8 +177,18 @@ class EventMenuStore:
     def _ensure_storage(self) -> None:
         """Initializes storage file if it does not exist (when not using Firestore)."""
         if not self.use_firestore and not self.storage_path.exists():
-            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-            self._save_all({})
+            try:
+                self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+                self._save_all({})
+            except OSError as err:
+                logger.warning(
+                    "Could not initialize local menu storage at %s (%s). Falling back to /tmp/saved_menus.json.",
+                    self.storage_path,
+                    err,
+                )
+                self.storage_path = Path("/tmp/saved_menus.json")
+                if not self.storage_path.exists():
+                    self._save_all({})
 
     def _load_all(self) -> Dict[str, Dict[str, Any]]:
         """Loads all raw menu dicts keyed by event_id."""
