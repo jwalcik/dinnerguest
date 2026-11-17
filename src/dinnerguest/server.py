@@ -26,18 +26,33 @@ try:
         user_id: str = "default_user"
         session_id: str = "default_session"
 
+    @app.get("/health")
+    @app.get("/ready")
     @app.get("/healthz")
-    def healthz() -> Dict[str, str]:
+    def health() -> Dict[str, str]:
         return {"status": "healthy", "service": "dinnerguest-agent"}
 
     @app.get("/")
     def root() -> Dict[str, Any]:
-        from dinnerguest.agent import root_agent
+        try:
+            from dinnerguest.agent import root_agent
+            agent_name = getattr(root_agent, "name", "Dinnerguest")
+            agent_desc = getattr(root_agent, "description", "Culinary orchestrator")
+        except Exception as exc:
+            logger.warning("Could not initialize root_agent: %s", exc)
+            agent_name = "Dinnerguest"
+            agent_desc = f"Culinary orchestrator (loading: {exc})"
 
         return {
             "service": "dinnerguest",
-            "agent": getattr(root_agent, "name", "Dinnerguest"),
+            "agent": agent_name,
+            "description": agent_desc,
             "status": "ready",
+            "endpoints": {
+                "health": "/health",
+                "ready": "/ready",
+                "chat": "/chat",
+            },
         }
 
 except ImportError:

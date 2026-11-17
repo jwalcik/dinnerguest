@@ -12,5 +12,4 @@ dist
 build
 .gemini
 .env
-data/saved_menus.json
-data/*.json
+/data/

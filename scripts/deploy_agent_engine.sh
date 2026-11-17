@@ -141,4 +141,6 @@ fi
 log_success "Agent Engine / Cloud Run service deployed successfully!"
 log_info "Service URL: $SERVICE_URL"
 log_info "Health Check (authenticated):"
-log_info "  curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${SERVICE_URL}/healthz"
+log_info "  curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${SERVICE_URL}/health"
+log_info "Root Endpoint:"
+log_info "  curl -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${SERVICE_URL}/"
