@@ -95,9 +95,19 @@ check_prerequisites() {
 enable_service() {
     local service="$1"
     log_info "Checking if API '$service' is enabled..."
-    if ! gcloud services list --enabled --filter="config.name:$service" --format="value(config.name)" | grep -q "$service"; then
+    if ! gcloud services list --enabled --project="$PROJECT_ID" --filter="config.name:$service" --format="value(config.name)" 2>/dev/null | grep -q "$service"; then
         log_step "Enabling $service..."
-        gcloud services enable "$service" --project="$PROJECT_ID"
+        gcloud services enable "$service" --project="$PROJECT_ID" --quiet
+        log_info "Waiting for $service activation to complete..."
+        local attempts=0
+        while [[ $attempts -lt 15 ]]; do
+            if gcloud services list --enabled --project="$PROJECT_ID" --filter="config.name:$service" --format="value(config.name)" 2>/dev/null | grep -q "$service"; then
+                break
+            fi
+            sleep 2
+            attempts=$((attempts + 1))
+        done
+        sleep 5
         log_success "Enabled $service"
     else
         log_info "API $service is already enabled."

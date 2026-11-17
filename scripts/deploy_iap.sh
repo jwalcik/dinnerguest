@@ -41,12 +41,22 @@ IAP_CLIENT_ID="${IAP_CLIENT_ID:-}"
 IAP_CLIENT_SECRET="${IAP_CLIENT_SECRET:-}"
 
 # Check Secret Manager if environment variables are not set
-if [[ -z "$IAP_CLIENT_ID" ]] && gcloud secrets describe "dinnerguest-iap-client-id" --project="$PROJECT_ID" &>/dev/null; then
-    IAP_CLIENT_ID=$(gcloud secrets versions access latest --secret="dinnerguest-iap-client-id" --project="$PROJECT_ID" 2>/dev/null || true)
+if [[ -z "$IAP_CLIENT_ID" ]]; then
+    if gcloud secrets describe "dinnerguest-iap-client-id" --project="$PROJECT_ID" --quiet < /dev/null &>/dev/null; then
+        IAP_CLIENT_ID=$(gcloud secrets versions access latest --secret="dinnerguest-iap-client-id" --project="$PROJECT_ID" --quiet < /dev/null 2>/dev/null || true)
+        if [[ -n "$IAP_CLIENT_ID" ]]; then
+            log_info "Loaded IAP_CLIENT_ID from Secret Manager."
+        fi
+    fi
 fi
 
-if [[ -z "$IAP_CLIENT_SECRET" ]] && gcloud secrets describe "dinnerguest-iap-client-secret" --project="$PROJECT_ID" &>/dev/null; then
-    IAP_CLIENT_SECRET=$(gcloud secrets versions access latest --secret="dinnerguest-iap-client-secret" --project="$PROJECT_ID" 2>/dev/null || true)
+if [[ -z "$IAP_CLIENT_SECRET" ]]; then
+    if gcloud secrets describe "dinnerguest-iap-client-secret" --project="$PROJECT_ID" --quiet < /dev/null &>/dev/null; then
+        IAP_CLIENT_SECRET=$(gcloud secrets versions access latest --secret="dinnerguest-iap-client-secret" --project="$PROJECT_ID" --quiet < /dev/null 2>/dev/null || true)
+        if [[ -n "$IAP_CLIENT_SECRET" ]]; then
+            log_info "Loaded IAP_CLIENT_SECRET from Secret Manager."
+        fi
+    fi
 fi
 
 # Guide creation if still missing
@@ -81,14 +91,15 @@ fi
 
 # 3. Reserve Global Static External IPv4 Address
 log_step "Reserving Global External Static IP Address '$STATIC_IP_NAME'..."
-if gcloud compute addresses describe "$STATIC_IP_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute addresses describe "$STATIC_IP_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "Static IP '$STATIC_IP_NAME' already exists."
 else
     gcloud compute addresses create "$STATIC_IP_NAME" \
         --network-tier=PREMIUM \
         --ip-version=IPV4 \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created static IP '$STATIC_IP_NAME'"
 fi
 
@@ -97,39 +108,42 @@ log_info "Load Balancer Static IP: ${BOLD}${GREEN}${LB_IP}${NC}"
 
 # 4. Serverless Network Endpoint Group (NEG) for Cloud Run
 log_step "Configuring Serverless NEG for $AGENT_SERVICE_NAME..."
-if gcloud compute network-endpoint-groups describe "$NEG_NAME" --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute network-endpoint-groups describe "$NEG_NAME" --region="$REGION" --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "Serverless NEG '$NEG_NAME' already exists."
 else
     gcloud compute network-endpoint-groups create "$NEG_NAME" \
         --region="$REGION" \
         --network-endpoint-type=SERVERLESS \
         --cloud-run-service="$AGENT_SERVICE_NAME" \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Serverless NEG '$NEG_NAME'"
 fi
 
 # 5. Google-Managed SSL Certificate
 log_step "Configuring Google-Managed SSL Certificate for domain '$DOMAIN_NAME'..."
-if gcloud compute ssl-certificates describe "$SSL_CERT_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute ssl-certificates describe "$SSL_CERT_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "SSL Certificate '$SSL_CERT_NAME' already exists."
 else
     gcloud compute ssl-certificates create "$SSL_CERT_NAME" \
         --domains="$DOMAIN_NAME" \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Google-managed SSL Certificate '$SSL_CERT_NAME'"
 fi
 
 # 6. Global Backend Service with Serverless NEG
 log_step "Configuring Backend Service '$BACKEND_SERVICE_NAME'..."
-if gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "Backend service '$BACKEND_SERVICE_NAME' already exists."
 else
     gcloud compute backend-services create "$BACKEND_SERVICE_NAME" \
         --load-balancing-scheme=EXTERNAL_MANAGED \
         --protocol=HTTPS \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Backend Service '$BACKEND_SERVICE_NAME'"
 fi
 
@@ -140,7 +154,8 @@ if ! gcloud compute backend-services describe "$BACKEND_SERVICE_NAME" --global -
         --global \
         --network-endpoint-group="$NEG_NAME" \
         --network-endpoint-group-region="$REGION" \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Attached NEG to Backend Service."
 else
     log_info "NEG is already attached to Backend Service."
@@ -189,32 +204,34 @@ fi
 
 # 10. URL Map for HTTPS Routing
 log_step "Configuring URL Map '$URL_MAP_NAME'..."
-if gcloud compute url-maps describe "$URL_MAP_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute url-maps describe "$URL_MAP_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "URL Map '$URL_MAP_NAME' already exists."
 else
     gcloud compute url-maps create "$URL_MAP_NAME" \
         --default-service="$BACKEND_SERVICE_NAME" \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created URL Map '$URL_MAP_NAME'"
 fi
 
 # 11. Target HTTPS Proxy
 log_step "Configuring Target HTTPS Proxy '$HTTPS_PROXY_NAME'..."
-if gcloud compute target-https-proxies describe "$HTTPS_PROXY_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute target-https-proxies describe "$HTTPS_PROXY_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "Target HTTPS Proxy '$HTTPS_PROXY_NAME' already exists."
 else
     gcloud compute target-https-proxies create "$HTTPS_PROXY_NAME" \
         --ssl-certificates="$SSL_CERT_NAME" \
         --url-map="$URL_MAP_NAME" \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Target HTTPS Proxy '$HTTPS_PROXY_NAME'"
 fi
 
 # 12. Global HTTPS Forwarding Rule (Port 443)
 log_step "Configuring Global HTTPS Forwarding Rule '$FORWARDING_RULE_NAME'..."
-if gcloud compute forwarding-rules describe "$FORWARDING_RULE_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if gcloud compute forwarding-rules describe "$FORWARDING_RULE_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     log_info "Forwarding Rule '$FORWARDING_RULE_NAME' already exists."
 else
     gcloud compute forwarding-rules create "$FORWARDING_RULE_NAME" \
@@ -224,13 +241,14 @@ else
         --target-https-proxy="$HTTPS_PROXY_NAME" \
         --ports=443 \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Global HTTPS Forwarding Rule '$FORWARDING_RULE_NAME'"
 fi
 
 # 13. HTTP to HTTPS Redirect (Port 80)
 log_step "Configuring HTTP to HTTPS Redirect..."
-if ! gcloud compute url-maps describe "$HTTP_REDIRECT_MAP_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if ! gcloud compute url-maps describe "$HTTP_REDIRECT_MAP_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     cat <<EOF | gcloud compute url-maps import "$HTTP_REDIRECT_MAP_NAME" --global --project="$PROJECT_ID" --quiet
 name: ${HTTP_REDIRECT_MAP_NAME}
 defaultUrlRedirect:
@@ -240,15 +258,16 @@ EOF
     log_success "Created HTTP redirect URL Map '$HTTP_REDIRECT_MAP_NAME'"
 fi
 
-if ! gcloud compute target-http-proxies describe "$HTTP_PROXY_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if ! gcloud compute target-http-proxies describe "$HTTP_PROXY_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     gcloud compute target-http-proxies create "$HTTP_PROXY_NAME" \
         --url-map="$HTTP_REDIRECT_MAP_NAME" \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Target HTTP Proxy '$HTTP_PROXY_NAME'"
 fi
 
-if ! gcloud compute forwarding-rules describe "$HTTP_FORWARDING_RULE_NAME" --global --project="$PROJECT_ID" &>/dev/null; then
+if ! gcloud compute forwarding-rules describe "$HTTP_FORWARDING_RULE_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
     gcloud compute forwarding-rules create "$HTTP_FORWARDING_RULE_NAME" \
         --load-balancing-scheme=EXTERNAL_MANAGED \
         --network-tier=PREMIUM \
@@ -256,7 +275,8 @@ if ! gcloud compute forwarding-rules describe "$HTTP_FORWARDING_RULE_NAME" --glo
         --target-http-proxy="$HTTP_PROXY_NAME" \
         --ports=80 \
         --global \
-        --project="$PROJECT_ID"
+        --project="$PROJECT_ID" \
+        --quiet
     log_success "Created Global HTTP Forwarding Rule '$HTTP_FORWARDING_RULE_NAME'"
 fi
 
@@ -279,7 +299,7 @@ log_info "Allocated Load Balancer IP Address: ${BOLD}${GREEN}${LB_IP}${NC}"
 DNS_UPDATED=false
 if [[ -n "$DNS_PROJECT_ID" && -n "$DNS_ZONE_NAME" ]]; then
     log_info "Attempting automated Cloud DNS update in project '${DNS_PROJECT_ID}' (zone '${DNS_ZONE_NAME}')..."
-    if gcloud dns record-sets describe "${DOMAIN_NAME}." --zone="$DNS_ZONE_NAME" --type="A" --project="$DNS_PROJECT_ID" &>/dev/null; then
+    if gcloud dns record-sets describe "${DOMAIN_NAME}." --zone="$DNS_ZONE_NAME" --type="A" --project="$DNS_PROJECT_ID" --quiet &>/dev/null; then
         log_info "Record for '${DOMAIN_NAME}.' already exists, updating rrdatas..."
         if gcloud dns record-sets update "${DOMAIN_NAME}." \
             --zone="$DNS_ZONE_NAME" \
