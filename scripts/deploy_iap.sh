@@ -214,6 +214,16 @@ if [[ -n "$PROJECT_NUMBER" ]]; then
         --quiet &>/dev/null || true
 fi
 
+# In Serverless NEG architectures, Cloud Run requires allUsers on run.invoker
+# (Actual access is strictly gated by IAP at the LB layer, and direct internet access to the *.run.app URL is blocked by the ingress setting below)
+log_step "Allowing Load Balancer invocations to $AGENT_SERVICE_NAME..."
+gcloud run services add-iam-policy-binding "$AGENT_SERVICE_NAME" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --member="allUsers" \
+    --role="roles/run.invoker" \
+    --quiet
+
 # 10. URL Map for HTTPS Routing
 log_step "Configuring URL Map '$URL_MAP_NAME'..."
 if gcloud compute url-maps describe "$URL_MAP_NAME" --global --project="$PROJECT_ID" --quiet &>/dev/null; then
