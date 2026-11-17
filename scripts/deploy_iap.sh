@@ -68,9 +68,11 @@ if [[ -z "$IAP_CLIENT_ID" || -z "$IAP_CLIENT_SECRET" ]]; then
     log_info "   https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}"
     log_info "2. Create OAuth 2.0 Client ID (Application type: 'Web application'):"
     log_info "   https://console.cloud.google.com/apis/credentials?project=${PROJECT_ID}"
-    log_info "   - Name: Dinnerguest IAP Client"
-    log_info "   - Authorized redirect URIs:"
-    log_info "     https://iap.googleapis.com/v1/oauth/clientIds/<CLIENT_ID>:handleRedirect"
+    log_info "   - Step A: Set Name to 'Dinnerguest IAP Client' and leave Authorized redirect URIs blank. Click 'Create'."
+    log_info "   - Step B: Copy the generated Client ID and Client Secret."
+    log_info "   - Step C: Click Edit (pencil icon) on the newly created client, click '+ Add URI', and paste:"
+    log_info "             https://iap.googleapis.com/v1/oauth/clientIds/<YOUR_CLIENT_ID>:handleRedirect"
+    log_info "             (replacing <YOUR_CLIENT_ID> with the actual Client ID from Step B), then click 'Save'."
     echo ""
     
     if [ -t 0 ]; then
