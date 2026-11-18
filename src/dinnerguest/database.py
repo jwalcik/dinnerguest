@@ -30,6 +30,7 @@ def is_cloud_sql_configured() -> bool:
         os.getenv("CLOUD_SQL_CONNECTION_NAME")
         or os.getenv("DB_HOST")
         or os.getenv("CLOUD_SQL_INSTANCE")
+        or os.getenv("CLOUD_SQL_DB")
         or CLOUD_SQL_CONNECTION_NAME
         or DB_HOST
     )
@@ -48,24 +49,23 @@ def get_db_connection() -> Any:
     db_name = os.getenv("CLOUD_SQL_DB", CLOUD_SQL_DB)
     db_user = os.getenv("CLOUD_SQL_USER", CLOUD_SQL_USER)
     db_password = os.getenv("CLOUD_SQL_PASSWORD", CLOUD_SQL_PASSWORD)
-    db_host = os.getenv("DB_HOST", DB_HOST)
+    db_host = os.getenv("DB_HOST", DB_HOST) or "127.0.0.1"
     db_port = int(os.getenv("DB_PORT", str(DB_PORT)))
 
     # 1. Attempt connecting via pg8000
     try:
         import pg8000.native
 
-        if conn_name:
+        if conn_name and os.path.exists(f"/cloudsql/{conn_name}"):
             base_dir = f"/cloudsql/{conn_name}"
             socket_file = f"{base_dir}/.s.PGSQL.5432"
             unix_sock = socket_file if os.path.exists(socket_file) else base_dir
-            if os.path.exists(base_dir):
-                return pg8000.native.Connection(
-                    user=db_user,
-                    password=db_password,
-                    database=db_name,
-                    unix_sock=unix_sock,
-                )
+            return pg8000.native.Connection(
+                user=db_user,
+                password=db_password,
+                database=db_name,
+                unix_sock=unix_sock,
+            )
         elif db_host:
             return pg8000.native.Connection(
                 user=db_user,

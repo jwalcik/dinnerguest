@@ -701,15 +701,17 @@ def connect_postgres(args: argparse.Namespace) -> Any:
     db_user = os.getenv("CLOUD_SQL_USER", "dinnerguest_app")
     db_password = os.getenv("CLOUD_SQL_PASSWORD", "DinnerGuest2026!Secure")
     conn_name = os.getenv("CLOUD_SQL_CONNECTION_NAME")
-    db_host = os.getenv("DB_HOST")
+    db_host = os.getenv("DB_HOST") or "127.0.0.1"
     db_port = int(os.getenv("DB_PORT", "5432"))
 
+    # Try pg8000
     try:
         import pg8000.native
-        if conn_name:
+        if conn_name and os.path.exists(f"/cloudsql/{conn_name}"):
             base_dir = f"/cloudsql/{conn_name}"
             socket_file = f"{base_dir}/.s.PGSQL.5432"
             unix_sock = socket_file if os.path.exists(socket_file) else base_dir
+            logger.info("Connecting via pg8000 unix socket: %s", unix_sock)
             return pg8000.native.Connection(
                 user=db_user,
                 password=db_password,
@@ -717,6 +719,7 @@ def connect_postgres(args: argparse.Namespace) -> Any:
                 unix_sock=unix_sock,
             )
         elif db_host:
+            logger.info("Connecting via pg8000 TCP: %s:%d (user: %s, db: %s)", db_host, db_port, db_user, db_name)
             return pg8000.native.Connection(
                 user=db_user,
                 password=db_password,
@@ -726,10 +729,14 @@ def connect_postgres(args: argparse.Namespace) -> Any:
             )
     except ImportError:
         pass
+    except Exception as exc:
+        logger.warning("Standalone pg8000 connection to %s:%d failed: %s", db_host, db_port, exc)
 
+    # Try psycopg2
     try:
         import psycopg2
         if conn_name and os.path.exists(f"/cloudsql/{conn_name}"):
+            logger.info("Connecting via psycopg2 unix socket: /cloudsql/%s", conn_name)
             return psycopg2.connect(
                 dbname=db_name,
                 user=db_user,
@@ -737,6 +744,7 @@ def connect_postgres(args: argparse.Namespace) -> Any:
                 host=f"/cloudsql/{conn_name}",
             )
         elif db_host:
+            logger.info("Connecting via psycopg2 TCP: %s:%d (user: %s, db: %s)", db_host, db_port, db_user, db_name)
             return psycopg2.connect(
                 dbname=db_name,
                 user=db_user,
@@ -746,6 +754,8 @@ def connect_postgres(args: argparse.Namespace) -> Any:
             )
     except ImportError:
         pass
+    except Exception as exc:
+        logger.warning("Standalone psycopg2 connection to %s:%d failed: %s", db_host, db_port, exc)
 
     return None
 
