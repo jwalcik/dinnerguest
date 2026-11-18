@@ -252,15 +252,77 @@ def init_postgres_db(conn: Any) -> None:
         cur.close()
 
 
+def check_existing_postgres(conn: Any, ids: List[str]) -> Dict[str, bool]:
+    """Returns a dict mapping recipe_id to whether it already has an embedding in PostgreSQL."""
+    if not ids:
+        return {}
+    res: Dict[str, bool] = {}
+    if hasattr(conn, "run"):
+        # pg8000
+        try:
+            rows = conn.run(
+                "SELECT id, (embedding IS NOT NULL) FROM recipes WHERE id = ANY(:ids)",
+                ids=ids,
+            )
+            if isinstance(rows, (list, tuple)):
+                for row in rows:
+                    if len(row) >= 2:
+                        res[str(row[0])] = bool(row[1])
+        except Exception as exc:
+            logger.debug("check_existing_postgres error: %s", exc)
+    elif hasattr(conn, "cursor"):
+        # psycopg2
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, (embedding IS NOT NULL) FROM recipes WHERE id = ANY(%s)", (ids,))
+            rows = cur.fetchall()
+            if isinstance(rows, (list, tuple)):
+                for row in rows:
+                    if len(row) >= 2:
+                        res[str(row[0])] = bool(row[1])
+            cur.close()
+        except Exception as exc:
+            logger.debug("check_existing_postgres error: %s", exc)
+    return res
+
+
+def check_existing_sqlite(conn: sqlite3.Connection, ids: List[str]) -> set[str]:
+    """Returns a set of recipe_ids that already exist in SQLite."""
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT id FROM recipes WHERE id IN ({placeholders})", ids)
+        rows = cur.fetchall()
+        return {row[0] for row in rows}
+    except Exception as exc:
+        logger.debug("check_existing_sqlite error: %s", exc)
+        return set()
+
+
 def insert_batch_postgres(
     conn: Any,
     batch: List[Dict[str, Any]],
     generate_embeddings: bool = False,
     embedding_func: Optional[Any] = None,
+    skip_existing: bool = False,
 ) -> int:
-    """Inserts a batch of recipes into Cloud SQL PostgreSQL."""
+    """Inserts a batch of recipes into Cloud SQL PostgreSQL.
+
+    If skip_existing is True, recipes already in the database are ignored.
+    If a recipe already exists with an embedding, re-embedding is skipped to conserve quota.
+    """
     if not batch:
         return 0
+
+    batch_ids = [r["id"] for r in batch]
+    existing_map = check_existing_postgres(conn, batch_ids)
+
+    if skip_existing and existing_map:
+        batch = [r for r in batch if r["id"] not in existing_map]
+        if not batch:
+            return 0
 
     inserted_count = 0
 
@@ -270,7 +332,8 @@ def insert_batch_postgres(
         try:
             for r in batch:
                 vec_str = None
-                if generate_embeddings and embedding_func:
+                has_existing_embedding = existing_map.get(r["id"], False)
+                if generate_embeddings and embedding_func and not has_existing_embedding:
                     vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
                     vec = embedding_func(vibe_text)
                     if vec:
@@ -329,7 +392,8 @@ def insert_batch_postgres(
         try:
             for r in batch:
                 vec_str = None
-                if generate_embeddings and embedding_func:
+                has_existing_embedding = existing_map.get(r["id"], False)
+                if generate_embeddings and embedding_func and not has_existing_embedding:
                     vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
                     vec = embedding_func(vibe_text)
                     if vec:
@@ -498,6 +562,17 @@ def main() -> None:
         help="Maximum total recipes to ingest across all CSV files.",
     )
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Number of recipes to skip from the beginning of the input stream before ingesting.",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip recipes that already exist in the database (avoids re-processing and re-generating embeddings).",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=500,
@@ -608,10 +683,14 @@ def main() -> None:
         init_postgres_db(pg_conn)
 
         batch: List[Dict[str, Any]] = []
+        skipped_offset = 0
         for src in sources:
             logger.info("Streaming recipes from %s...", src.display_name)
-            remaining_limit = (args.limit - total_inserted) if args.limit else None
-            for recipe in src.stream(limit=remaining_limit):
+            for recipe in src.stream(limit=None):
+                if skipped_offset < args.offset:
+                    skipped_offset += 1
+                    continue
+
                 batch.append(recipe)
                 if len(sample_recipes) < args.sample_size:
                     sample_recipes.append(recipe)
@@ -623,11 +702,12 @@ def main() -> None:
                         batch,
                         generate_embeddings=should_embed,
                         embedding_func=embedding_func,
+                        skip_existing=args.skip_existing,
                     )
                     total_inserted += count
                     if should_embed:
                         total_embedded += count
-                    logger.info("  Inserted %d recipes into Cloud SQL (Total: %d)...", count, total_inserted)
+                    logger.info("  Processed batch: %d inserted/updated in Cloud SQL (Total: %d)...", count, total_inserted)
                     batch = []
 
                 if args.limit and total_inserted >= args.limit:
@@ -643,6 +723,7 @@ def main() -> None:
                 batch,
                 generate_embeddings=should_embed,
                 embedding_func=embedding_func,
+                skip_existing=args.skip_existing,
             )
             total_inserted += count
             if should_embed:
@@ -664,10 +745,19 @@ def main() -> None:
         sqlite_conn = init_sqlite_db(args.output_sqlite)
         cur = sqlite_conn.cursor()
 
+        skipped_offset = 0
         for src in sources:
             logger.info("Streaming recipes from %s...", src.display_name)
-            remaining_limit = (args.limit - total_inserted) if args.limit else None
-            for recipe in src.stream(limit=remaining_limit):
+            for recipe in src.stream(limit=None):
+                if skipped_offset < args.offset:
+                    skipped_offset += 1
+                    continue
+
+                if args.skip_existing:
+                    existing_set = check_existing_sqlite(sqlite_conn, [recipe["id"]])
+                    if recipe["id"] in existing_set:
+                        continue
+
                 cur.execute(
                     """
                     INSERT OR REPLACE INTO recipes (id, title, servings, ingredients_json, instructions_json, tags_json)

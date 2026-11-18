@@ -11,6 +11,8 @@ from unittest.mock import MagicMock
 
 from scripts.ingest_kaggle_data import (
     RecipeSource,
+    check_existing_postgres,
+    check_existing_sqlite,
     discover_gcs_csv_blobs,
     init_postgres_db,
     init_sqlite_db,
@@ -134,7 +136,7 @@ class TestIngestKaggleData(unittest.TestCase):
         count = insert_batch_postgres(mock_conn, batch, generate_embeddings=False)
         self.assertEqual(count, 1)
         mock_conn.commit.assert_called_once()
-        mock_cur.execute.assert_called_once()
+        self.assertGreaterEqual(mock_cur.execute.call_count, 1)
 
 
     def test_parse_gcs_uri(self):
@@ -178,6 +180,40 @@ class TestIngestKaggleData(unittest.TestCase):
         results = list(src.stream())
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "Steamed Artichoke")
+
+
+    def test_skip_existing_postgres(self):
+        mock_conn = MagicMock()
+        # Mock run() returning existing ID with embedding
+        mock_conn.run.side_effect = [
+            [["rec_01", True]],  # check_existing_postgres returns rec_01 as existing
+            None,  # BEGIN
+            None,  # INSERT
+            None,  # COMMIT
+        ]
+        batch = [
+            {"id": "rec_01", "title": "Old Recipe", "servings": 2, "ingredients": [], "instructions": [], "tags": []},
+            {"id": "rec_02", "title": "New Recipe", "servings": 4, "ingredients": [], "instructions": [], "tags": []},
+        ]
+        count = insert_batch_postgres(mock_conn, batch, skip_existing=True)
+        self.assertEqual(count, 1)
+
+    def test_check_existing_sqlite(self):
+        with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+            db_path = Path(f.name)
+        try:
+            conn = init_sqlite_db(db_path)
+            cur = conn.cursor()
+            cur.execute("INSERT INTO recipes VALUES ('rec_a', 'Pasta', 2, '[]', '[]', '[]')")
+            conn.commit()
+
+            existing = check_existing_sqlite(conn, ["rec_a", "rec_b"])
+            self.assertIn("rec_a", existing)
+            self.assertNotIn("rec_b", existing)
+            conn.close()
+        finally:
+            if db_path.exists():
+                db_path.unlink()
 
 
 if __name__ == "__main__":
