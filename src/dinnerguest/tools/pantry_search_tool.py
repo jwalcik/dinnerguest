@@ -233,12 +233,24 @@ class PantrySearchTool:
         return None
 
     def is_staple(self, token: str) -> bool:
+        """Determines if an ingredient token is a common kitchen pantry staple.
+
+        Includes universal staples (salt, pepper, oils, water, basic spices, baking essentials).
+        """
         clean = token.lower().strip()
         if clean in self.staples:
             return True
         for staple in self.staples:
             if staple in clean or clean in staple:
                 return True
+        # Catch-all dry spices, seasonings, extracts, and universal baking essentials
+        spice_or_staple_patterns = [
+            "spice", "seasoning", "extract", "powder", "oil", "salt", "pepper",
+            "cinnamon", "oregano", "paprika", "cumin", "nutmeg", "thyme", "rosemary",
+            "basil", "clove", "bay leaf", "vanilla", "vinegar", "sugar", "flour", "water"
+        ]
+        if any(p in clean for p in spice_or_staple_patterns):
+            return True
         return False
 
     def search_recipes(
