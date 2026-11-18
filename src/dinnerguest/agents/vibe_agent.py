@@ -272,7 +272,7 @@ def search_recipes_by_vibe_adk(
 
 vibe_agent = Agent(
     name="VibeAgent",
-    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
     description="Specialized sub-agent for discovering recipes by mood, vibe, season, cravings, and flavor profiles using vector RAG.",
     instruction=VIBE_AGENT_INSTRUCTION,
     tools=[search_recipes_by_vibe_adk],

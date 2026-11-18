@@ -32,7 +32,7 @@ except ImportError:
                     **kwargs: Any,
                 ):
                     self.name = name
-                    self.model = model or os.getenv("GEN_MODEL", "gemini-2.5-flash")
+                    self.model = model or os.getenv("GEN_MODEL", "gemini-3.8-flash")
                     self.description = description
                     self.instruction = instruction
                     self.tools = tools or []

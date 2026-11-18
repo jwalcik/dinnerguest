@@ -207,7 +207,7 @@ def find_recipes_by_on_hand_ingredients_adk(
 
 on_hand_agent = Agent(
     name="OnHandAgent",
-    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
     description="Specialized sub-agent for finding recipes matching pantry/on-hand ingredients with substitutions and staple probing.",
     instruction=ON_HAND_AGENT_INSTRUCTION,
     tools=[find_recipes_by_on_hand_ingredients_adk],

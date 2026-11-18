@@ -18,6 +18,7 @@ from dinnerguest.agent import (
 class TestDinnerguestAgent(unittest.TestCase):
     def test_root_agent_metadata(self):
         self.assertEqual(root_agent.name, "Dinnerguest")
+        self.assertEqual(root_agent.model, "gemini-3.8-flash")
         self.assertIsNotNone(root_agent.instruction)
         self.assertEqual(len(root_agent.tools), 9)
         self.assertEqual(len(root_agent.sub_agents), 3)

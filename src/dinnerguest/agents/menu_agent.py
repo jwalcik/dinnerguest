@@ -184,7 +184,7 @@ Guidelines:
 
 menu_agent = Agent(
     name="MenuAgent",
-    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
     description="Specialized sub-agent for multi-course meal planning, serving scaling, allergen safety, and event persistence.",
     instruction=MENU_AGENT_INSTRUCTION,
     tools=[],

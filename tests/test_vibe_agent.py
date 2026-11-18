@@ -19,6 +19,7 @@ class TestVibeAgent(unittest.TestCase):
     def test_vibe_agent_adk_definition(self):
         """Validates that vibe_agent is defined as an ADK Agent instance."""
         self.assertEqual(vibe_agent.name, "VibeAgent")
+        self.assertEqual(vibe_agent.model, "gemini-3.8-flash")
         self.assertIsNotNone(vibe_agent.instruction)
         self.assertGreaterEqual(len(vibe_agent.tools), 1)
 

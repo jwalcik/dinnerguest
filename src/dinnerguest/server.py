@@ -584,7 +584,7 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         )
 
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        model_name = os.getenv("GEN_MODEL", "gemini-2.5-flash")
+        model_name = os.getenv("GEN_MODEL", "gemini-3.8-flash")
 
         client = genai.Client(vertexai=True, project=project, location=location)
         available_tools = [
