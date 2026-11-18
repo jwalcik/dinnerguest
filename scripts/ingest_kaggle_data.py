@@ -21,8 +21,37 @@ from typing import Any, Dict, Generator, List, Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+# Accommodate large text fields in Kaggle recipe CSVs without memory crashing
+try:
+    csv.field_size_limit(min(sys.maxsize, 2147483647))
+except Exception:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ingest_kaggle_data")
+
+
+def parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
+    """Parses a gs://bucket-name/prefix URI into (bucket_name, prefix)."""
+    cleaned = gcs_uri.strip()
+    if not cleaned.startswith("gs://"):
+        raise ValueError(f"Invalid GCS URI: {gcs_uri}. Must begin with 'gs://'")
+    path_part = cleaned[5:]
+    parts = path_part.split("/", 1)
+    bucket_name = parts[0]
+    prefix = parts[1] if len(parts) > 1 else ""
+    return bucket_name, prefix
+
+
+def discover_gcs_csv_blobs(gcs_uri: str) -> List[Any]:
+    """Discovers all CSV blobs under the specified GCS URI prefix."""
+    from google.cloud import storage
+
+    bucket_name, prefix = parse_gcs_uri(gcs_uri)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.lower().endswith(".csv")]
+    return blobs
 
 
 def normalize_recipe_row(
@@ -60,40 +89,75 @@ def normalize_recipe_row(
     }
 
 
+def stream_recipes_from_reader(reader: csv.DictReader, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
+    """Streams and normalizes recipe rows from an initialized csv.DictReader."""
+    count = 0
+    for row in reader:
+        title = row.get("title") or row.get("name") or row.get("recipe_name") or "Untitled Recipe"
+        rec_id = row.get("id") or f"kaggle_{count + 1}"
+        raw_ing = row.get("ingredients") or "[]"
+        raw_inst = row.get("directions") or row.get("instructions") or row.get("steps") or "[]"
+        servings = row.get("servings") or 4
+
+        tags = []
+        if "tags" in row:
+            try:
+                tags = json.loads(row["tags"])
+            except Exception:
+                tags = [t.strip() for t in row["tags"].split(",") if t.strip()]
+
+        yield normalize_recipe_row(
+            recipe_id=rec_id,
+            title=title,
+            ingredients_raw=raw_ing,
+            instructions_raw=raw_inst,
+            servings=servings,
+            tags=tags,
+        )
+        count += 1
+        if limit and count >= limit:
+            break
+
+
 def stream_recipes_from_csv(file_path: Path, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
-    """Streams and normalizes recipe rows from a CSV file."""
+    """Streams and normalizes recipe rows from a local CSV file."""
     if not file_path.exists():
         logger.warning("File not found: %s", file_path)
         return
 
-    count = 0
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            title = row.get("title") or row.get("name") or row.get("recipe_name") or "Untitled Recipe"
-            rec_id = row.get("id") or f"kaggle_{count + 1}"
-            raw_ing = row.get("ingredients") or "[]"
-            raw_inst = row.get("directions") or row.get("instructions") or row.get("steps") or "[]"
-            servings = row.get("servings") or 4
+        yield from stream_recipes_from_reader(reader, limit=limit)
 
-            tags = []
-            if "tags" in row:
-                try:
-                    tags = json.loads(row["tags"])
-                except Exception:
-                    tags = [t.strip() for t in row["tags"].split(",") if t.strip()]
 
-            yield normalize_recipe_row(
-                recipe_id=rec_id,
-                title=title,
-                ingredients_raw=raw_ing,
-                instructions_raw=raw_inst,
-                servings=servings,
-                tags=tags,
-            )
-            count += 1
-            if limit and count >= limit:
-                break
+def stream_recipes_from_gcs_blob(blob: Any, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
+    """Streams and normalizes recipe rows directly from a Google Cloud Storage blob.
+
+    Zero local disk footprint: uses blob.open() to stream HTTP chunks.
+    """
+    with blob.open("r", encoding="utf-8", errors="replace") as f:
+        reader = csv.DictReader(f)
+        yield from stream_recipes_from_reader(reader, limit=limit)
+
+
+class RecipeSource:
+    """Wrapper around a local Path or GCS Blob for unified streaming."""
+
+    def __init__(self, item: Any, is_gcs: bool):
+        self.item = item
+        self.is_gcs = is_gcs
+
+    @property
+    def display_name(self) -> str:
+        if self.is_gcs:
+            return f"gs://{self.item.bucket.name}/{self.item.name}"
+        return self.item.name
+
+    def stream(self, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
+        if self.is_gcs:
+            yield from stream_recipes_from_gcs_blob(self.item, limit=limit)
+        else:
+            yield from stream_recipes_from_csv(self.item, limit=limit)
 
 
 def init_sqlite_db(db_path: Path) -> sqlite3.Connection:
@@ -417,9 +481,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--raw-dir",
-        type=Path,
-        default=Path.home() / "dinnerguest_raw_data",
-        help="Directory where Kaggle CSV files are stored.",
+        type=str,
+        default=str(Path.home() / "dinnerguest_raw_data"),
+        help="Local directory path OR Google Cloud Storage URI (e.g. gs://bucket-name/raw_kaggle/) where CSV files are stored.",
+    )
+    parser.add_argument(
+        "--raw-gcs",
+        type=str,
+        default=None,
+        help="Google Cloud Storage URI (e.g. gs://bucket-name/raw_kaggle/) to stream CSVs directly without local disk usage.",
     )
     parser.add_argument(
         "--limit",
@@ -479,16 +549,35 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Discover CSV files
-    csv_candidates = list(args.raw_dir.glob("**/*.csv"))
-    if not csv_candidates:
-        logger.error(
-            "No CSV files found in '%s'. Please run scripts/download_kaggle_data.sh first.",
-            args.raw_dir,
-        )
-        sys.exit(1)
+    # Discover CSV files (either in Google Cloud Storage or local filesystem)
+    raw_dir_str = str(args.raw_dir).strip()
+    is_gcs = args.raw_gcs is not None or raw_dir_str.startswith("gs://")
+    gcs_uri = args.raw_gcs or (raw_dir_str if raw_dir_str.startswith("gs://") else None)
 
-    logger.info("Found %d CSV file(s) in %s.", len(csv_candidates), args.raw_dir)
+    sources: List[RecipeSource] = []
+    if is_gcs:
+        logger.info("Scanning Google Cloud Storage for recipe CSVs at %s...", gcs_uri)
+        try:
+            blobs = discover_gcs_csv_blobs(gcs_uri)
+            if not blobs:
+                logger.error("No CSV blobs found under GCS URI '%s'.", gcs_uri)
+                sys.exit(1)
+            logger.info("Found %d CSV blob(s) in GCS: %s", len(blobs), [b.name for b in blobs])
+            sources = [RecipeSource(b, is_gcs=True) for b in blobs]
+        except Exception as exc:
+            logger.error("Failed to list GCS blobs from '%s': %s", gcs_uri, exc)
+            sys.exit(1)
+    else:
+        raw_path = Path(raw_dir_str).expanduser()
+        csv_candidates = sorted(list(raw_path.glob("**/*.csv")))
+        if not csv_candidates:
+            logger.error(
+                "No CSV files found in '%s'. Please run scripts/download_kaggle_data.sh or specify --raw-dir gs://...",
+                raw_path,
+            )
+            sys.exit(1)
+        logger.info("Found %d CSV file(s) in %s.", len(csv_candidates), raw_path)
+        sources = [RecipeSource(p, is_gcs=False) for p in csv_candidates]
 
     # Embedding function setup if requested
     embedding_func = None
@@ -519,9 +608,10 @@ def main() -> None:
         init_postgres_db(pg_conn)
 
         batch: List[Dict[str, Any]] = []
-        for csv_file in csv_candidates:
-            logger.info("Streaming recipes from %s...", csv_file.name)
-            for recipe in stream_recipes_from_csv(csv_file, limit=args.limit):
+        for src in sources:
+            logger.info("Streaming recipes from %s...", src.display_name)
+            remaining_limit = (args.limit - total_inserted) if args.limit else None
+            for recipe in src.stream(limit=remaining_limit):
                 batch.append(recipe)
                 if len(sample_recipes) < args.sample_size:
                     sample_recipes.append(recipe)
@@ -574,9 +664,10 @@ def main() -> None:
         sqlite_conn = init_sqlite_db(args.output_sqlite)
         cur = sqlite_conn.cursor()
 
-        for csv_file in csv_candidates:
-            logger.info("Streaming recipes from %s...", csv_file.name)
-            for recipe in stream_recipes_from_csv(csv_file, limit=args.limit):
+        for src in sources:
+            logger.info("Streaming recipes from %s...", src.display_name)
+            remaining_limit = (args.limit - total_inserted) if args.limit else None
+            for recipe in src.stream(limit=remaining_limit):
                 cur.execute(
                     """
                     INSERT OR REPLACE INTO recipes (id, title, servings, ingredients_json, instructions_json, tags_json)

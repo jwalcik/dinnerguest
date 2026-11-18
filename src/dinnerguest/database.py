@@ -338,11 +338,17 @@ def init_and_seed_db() -> Dict[str, Any]:
     return {"status": "skipped"}
 
 
+_CACHED_GENAI_CLIENT = None
+_CACHED_VERTEXAI_MODEL = None
+
+
 def generate_embedding(text: str) -> Optional[List[float]]:
     """Generates a 768-dimensional embedding using Google GenAI or Vertex AI.
 
     Falls back safely to None if credentials or client libraries are unavailable.
+    Caches the client/model instance across calls to avoid memory leaks and connection thrashing.
     """
+    global _CACHED_GENAI_CLIENT, _CACHED_VERTEXAI_MODEL
     project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
@@ -350,8 +356,9 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     try:
         from google import genai
         if project:
-            client = genai.Client(vertexai=True, project=project, location=location)
-            res = client.models.embed_content(
+            if _CACHED_GENAI_CLIENT is None:
+                _CACHED_GENAI_CLIENT = genai.Client(vertexai=True, project=project, location=location)
+            res = _CACHED_GENAI_CLIENT.models.embed_content(
                 model="text-embedding-004",
                 contents=text,
             )
@@ -363,8 +370,9 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     # 2. Attempt using vertexai TextEmbeddingModel
     try:
         from vertexai.language_models import TextEmbeddingModel
-        model = TextEmbeddingModel.from_pretrained("text-embedding-004")
-        embeddings = model.get_embeddings([text])
+        if _CACHED_VERTEXAI_MODEL is None:
+            _CACHED_VERTEXAI_MODEL = TextEmbeddingModel.from_pretrained("text-embedding-004")
+        embeddings = _CACHED_VERTEXAI_MODEL.get_embeddings([text])
         if embeddings:
             return list(embeddings[0].values)
     except Exception as exc:

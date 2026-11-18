@@ -5,15 +5,20 @@ import json
 import sqlite3
 import tempfile
 import unittest
+import io
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from scripts.ingest_kaggle_data import (
+    RecipeSource,
+    discover_gcs_csv_blobs,
     init_postgres_db,
     init_sqlite_db,
     insert_batch_postgres,
     normalize_recipe_row,
+    parse_gcs_uri,
     stream_recipes_from_csv,
+    stream_recipes_from_gcs_blob,
 )
 
 
@@ -130,6 +135,49 @@ class TestIngestKaggleData(unittest.TestCase):
         self.assertEqual(count, 1)
         mock_conn.commit.assert_called_once()
         mock_cur.execute.assert_called_once()
+
+
+    def test_parse_gcs_uri(self):
+        bucket, prefix = parse_gcs_uri("gs://my-bucket/recipes/raw/")
+        self.assertEqual(bucket, "my-bucket")
+        self.assertEqual(prefix, "recipes/raw/")
+
+        bucket2, prefix2 = parse_gcs_uri("gs://simple-bucket")
+        self.assertEqual(bucket2, "simple-bucket")
+        self.assertEqual(prefix2, "")
+
+    def test_parse_gcs_uri_invalid(self):
+        with self.assertRaises(ValueError):
+            parse_gcs_uri("https://storage.googleapis.com/bucket")
+
+    def test_stream_recipes_from_gcs_blob_mock(self):
+        csv_data = "id,title,ingredients,directions,servings,tags\n" \
+                   "gcs_01,GCS Clam Chowder,\"[\"\"clams\"\", \"\"cream\"\"]\",\"[\"\"simmer clams\"\", \"\"stir cream\"\"]\",6,\"[\"\"soup\"\"]\"\n"
+
+        mock_blob = MagicMock()
+        mock_blob.open.return_value.__enter__.return_value = io.StringIO(csv_data)
+
+        recipes = list(stream_recipes_from_gcs_blob(mock_blob))
+        self.assertEqual(len(recipes), 1)
+        self.assertEqual(recipes[0]["id"], "gcs_01")
+        self.assertEqual(recipes[0]["title"], "GCS Clam Chowder")
+        self.assertEqual(recipes[0]["servings"], 6)
+        self.assertIn("clams", recipes[0]["ingredients"])
+
+    def test_recipe_source_display_name_and_stream(self):
+        csv_data = "id,title,ingredients,directions,servings\n" \
+                   "blob_01,Steamed Artichoke,\"[\"\"artichoke\"\", \"\"butter\"\"]\",\"[\"\"steam artichoke\"\"]\",2\n"
+
+        mock_blob = MagicMock()
+        mock_blob.bucket.name = "dinnerguest-bucket"
+        mock_blob.name = "raw/artichoke.csv"
+        mock_blob.open.return_value.__enter__.return_value = io.StringIO(csv_data)
+
+        src = RecipeSource(mock_blob, is_gcs=True)
+        self.assertEqual(src.display_name, "gs://dinnerguest-bucket/raw/artichoke.csv")
+        results = list(src.stream())
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "Steamed Artichoke")
 
 
 if __name__ == "__main__":
