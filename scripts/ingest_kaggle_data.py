@@ -183,10 +183,15 @@ class RecipeSource:
             yield from stream_recipes_from_csv(self.item, limit=limit)
 
 
-def init_sqlite_db(db_path: Path) -> sqlite3.Connection:
+def init_sqlite_db(db_path: Path, drop_existing: bool = False) -> sqlite3.Connection:
     """Initializes local SQLite database for offline testing."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
+    if drop_existing:
+        logger.warning("Dropping existing 'recipes' table in SQLite...")
+        cur.execute("DROP TABLE IF EXISTS recipes")
+        conn.commit()
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS recipes (
@@ -204,8 +209,26 @@ def init_sqlite_db(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def init_postgres_db(conn: Any) -> None:
+def init_postgres_db(conn: Any, drop_existing: bool = False) -> None:
     """Initializes Cloud SQL PostgreSQL schema with pgvector extension and indexes."""
+    if drop_existing:
+        logger.warning("Dropping existing 'recipes' table in PostgreSQL...")
+        if hasattr(conn, "run"):
+            try:
+                conn.run("DROP TABLE IF EXISTS recipes CASCADE;")
+            except Exception as exc:
+                logger.error("Error dropping recipes table: %s", exc)
+        elif hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            try:
+                cur.execute("DROP TABLE IF EXISTS recipes CASCADE;")
+                conn.commit()
+            except Exception as exc:
+                logger.error("Error dropping recipes table: %s", exc)
+                conn.rollback()
+            finally:
+                cur.close()
+
     if hasattr(conn, "run"):
         # pg8000 connection
         try:
@@ -596,6 +619,11 @@ def main() -> None:
         help="Skip recipes that already exist in the database (avoids re-processing and re-generating embeddings).",
     )
     parser.add_argument(
+        "--drop-existing",
+        action="store_true",
+        help="Drop the existing recipes table before ingesting to guarantee a completely clean start.",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=500,
@@ -703,7 +731,7 @@ def main() -> None:
             sys.exit(1)
 
         logger.info("Initializing PostgreSQL schema and pgvector extension...")
-        init_postgres_db(pg_conn)
+        init_postgres_db(pg_conn, drop_existing=args.drop_existing)
 
         batch: List[Dict[str, Any]] = []
         skipped_offset = 0
@@ -765,7 +793,7 @@ def main() -> None:
     elif args.target == "sqlite":
         logger.info("Ingesting into SQLite database at %s...", args.output_sqlite)
         args.output_sqlite.parent.mkdir(parents=True, exist_ok=True)
-        sqlite_conn = init_sqlite_db(args.output_sqlite)
+        sqlite_conn = init_sqlite_db(args.output_sqlite, drop_existing=args.drop_existing)
         cur = sqlite_conn.cursor()
 
         skipped_offset = 0
