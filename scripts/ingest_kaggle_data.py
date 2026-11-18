@@ -54,6 +54,17 @@ def discover_gcs_csv_blobs(gcs_uri: str) -> List[Any]:
     return blobs
 
 
+def _clean_str(val: Any) -> Any:
+    """Removes null bytes and invalid Unicode escape sequences that cause Postgres text/JSONB conversion errors."""
+    if isinstance(val, str):
+        return val.replace("\x00", "").replace("\u0000", "")
+    elif isinstance(val, list):
+        return [_clean_str(x) for x in val]
+    elif isinstance(val, dict):
+        return {_clean_str(k): _clean_str(v) for k, v in val.items()}
+    return val
+
+
 def normalize_recipe_row(
     recipe_id: str,
     title: str,
@@ -80,12 +91,12 @@ def normalize_recipe_row(
         instructions = instructions_raw
 
     return {
-        "id": str(recipe_id),
-        "title": title.strip(),
+        "id": str(recipe_id).replace("\x00", "").replace("\u0000", ""),
+        "title": _clean_str(title.strip()),
         "servings": int(servings) if servings else 4,
-        "ingredients": ingredients,
-        "instructions": instructions,
-        "tags": tags or [],
+        "ingredients": _clean_str(ingredients),
+        "instructions": _clean_str(instructions),
+        "tags": _clean_str(tags or []),
     }
 
 
@@ -414,6 +425,9 @@ def insert_batch_postgres(
                     if vec:
                         vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
 
+                ing_json = json.dumps(r.get("ingredients", [])).replace("\\u0000", "").replace("\x00", "")
+                inst_json = json.dumps(r.get("instructions", [])).replace("\\u0000", "").replace("\x00", "")
+
                 if vec_str:
                     conn.run(
                         """
@@ -430,8 +444,8 @@ def insert_batch_postgres(
                         id=r["id"],
                         title=r["title"],
                         servings=r.get("servings", 4),
-                        ing=json.dumps(r.get("ingredients", [])),
-                        inst=json.dumps(r.get("instructions", [])),
+                        ing=ing_json,
+                        inst=inst_json,
                         tags=r.get("tags", []),
                         vec=vec_str,
                     )
@@ -450,8 +464,8 @@ def insert_batch_postgres(
                         id=r["id"],
                         title=r["title"],
                         servings=r.get("servings", 4),
-                        ing=json.dumps(r.get("ingredients", [])),
-                        inst=json.dumps(r.get("instructions", [])),
+                        ing=ing_json,
+                        inst=inst_json,
                         tags=r.get("tags", []),
                     )
                 inserted_count += 1
@@ -474,6 +488,9 @@ def insert_batch_postgres(
                     if vec:
                         vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
 
+                ing_json = json.dumps(r.get("ingredients", [])).replace("\\u0000", "").replace("\x00", "")
+                inst_json = json.dumps(r.get("instructions", [])).replace("\\u0000", "").replace("\x00", "")
+
                 if vec_str:
                     cur.execute(
                         """
@@ -491,8 +508,8 @@ def insert_batch_postgres(
                             r["id"],
                             r["title"],
                             r.get("servings", 4),
-                            json.dumps(r.get("ingredients", [])),
-                            json.dumps(r.get("instructions", [])),
+                            ing_json,
+                            inst_json,
                             r.get("tags", []),
                             vec_str,
                         ),
@@ -513,8 +530,8 @@ def insert_batch_postgres(
                             r["id"],
                             r["title"],
                             r.get("servings", 4),
-                            json.dumps(r.get("ingredients", [])),
-                            json.dumps(r.get("instructions", [])),
+                            ing_json,
+                            inst_json,
                             r.get("tags", []),
                         ),
                     )
@@ -528,6 +545,131 @@ def insert_batch_postgres(
             cur.close()
 
     return inserted_count
+
+
+def backfill_embeddings_postgres(
+    conn: Any,
+    limit: int = 1000,
+    batch_size: int = 50,
+    embedding_func: Optional[Any] = None,
+) -> int:
+    """Generates vector embeddings for existing recipes in PostgreSQL that lack embeddings."""
+    if not embedding_func:
+        logger.error("No embedding function provided for backfill.")
+        return 0
+
+    logger.info("Fetching up to %d recipes without embeddings from Cloud SQL...", limit)
+    recipes_to_embed: List[Dict[str, Any]] = []
+
+    if hasattr(conn, "run"):
+        # pg8000
+        try:
+            rows = conn.run(
+                "SELECT id, title, tags, ingredients_raw FROM recipes WHERE embedding IS NULL LIMIT :limit",
+                limit=limit,
+            )
+            for row in rows:
+                tags = row[2] if isinstance(row[2], list) else []
+                ing = row[3] if isinstance(row[3], list) else []
+                if isinstance(ing, str):
+                    try:
+                        ing = json.loads(ing)
+                    except Exception:
+                        ing = []
+                recipes_to_embed.append({
+                    "id": str(row[0]),
+                    "title": str(row[1]),
+                    "tags": tags,
+                    "ingredients": ing,
+                })
+        except Exception as exc:
+            logger.error("Failed to query un-embedded recipes (pg8000): %s", exc)
+            return 0
+    elif hasattr(conn, "cursor"):
+        # psycopg2
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT id, title, tags, ingredients_raw FROM recipes WHERE embedding IS NULL LIMIT %s",
+                (limit,),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                tags = row[2] if isinstance(row[2], list) else []
+                ing = row[3] if isinstance(row[3], list) else []
+                if isinstance(ing, str):
+                    try:
+                        ing = json.loads(ing)
+                    except Exception:
+                        ing = []
+                recipes_to_embed.append({
+                    "id": str(row[0]),
+                    "title": str(row[1]),
+                    "tags": tags,
+                    "ingredients": ing,
+                })
+            cur.close()
+        except Exception as exc:
+            logger.error("Failed to query un-embedded recipes (psycopg2): %s", exc)
+            conn.rollback()
+            return 0
+
+    if not recipes_to_embed:
+        logger.info("All recipes already have vector embeddings or table is empty.")
+        return 0
+
+    logger.info("Found %d recipes needing embeddings. Beginning embedding generation...", len(recipes_to_embed))
+    embedded_count = 0
+
+    for i in range(0, len(recipes_to_embed), batch_size):
+        chunk = recipes_to_embed[i : i + batch_size]
+        updates = []
+        for r in chunk:
+            vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
+            try:
+                vec = embedding_func(vibe_text)
+                if vec:
+                    vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
+                    updates.append((r["id"], vec_str))
+            except Exception as exc:
+                logger.warning("Error generating embedding for recipe '%s': %s", r["id"], exc)
+
+        if not updates:
+            continue
+
+        if hasattr(conn, "run"):
+            conn.run("BEGIN")
+            try:
+                for rec_id, vec_str in updates:
+                    conn.run(
+                        "UPDATE recipes SET embedding = :vec::vector WHERE id = :id",
+                        vec=vec_str,
+                        id=rec_id,
+                    )
+                conn.run("COMMIT")
+                embedded_count += len(updates)
+            except Exception as exc:
+                conn.run("ROLLBACK")
+                logger.error("Error updating batch embeddings (pg8000): %s", exc)
+        elif hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            try:
+                for rec_id, vec_str in updates:
+                    cur.execute(
+                        "UPDATE recipes SET embedding = %s::vector WHERE id = %s",
+                        (vec_str, rec_id),
+                    )
+                conn.commit()
+                embedded_count += len(updates)
+            except Exception as exc:
+                conn.rollback()
+                logger.error("Error updating batch embeddings (psycopg2): %s", exc)
+            finally:
+                cur.close()
+
+        logger.info("Embedded and updated %d / %d recipes in Cloud SQL...", embedded_count, len(recipes_to_embed))
+
+    return embedded_count
 
 
 def connect_postgres(args: argparse.Namespace) -> Any:
@@ -670,6 +812,11 @@ def main() -> None:
         help="Maximum number of recipes to generate vector embeddings for (default: 1000). Set 0 for all.",
     )
     parser.add_argument(
+        "--backfill-embeddings",
+        action="store_true",
+        help="Generate embeddings for existing recipes already in PostgreSQL that lack them, without re-reading CSVs.",
+    )
+    parser.add_argument(
         "--output-sqlite",
         type=Path,
         default=Path("data/processed/recipes.sqlite"),
@@ -703,6 +850,25 @@ def main() -> None:
     parser.add_argument("--password", type=str, default=None, help="Cloud SQL database password")
 
     args = parser.parse_args()
+
+    # Direct embedding backfill for existing Cloud SQL recipes (no CSV reading needed)
+    if args.backfill_embeddings:
+        logger.info("Running in embedding backfill mode for existing PostgreSQL recipes...")
+        pg_conn = connect_postgres(args)
+        if pg_conn is None:
+            logger.error("Failed to connect to Cloud SQL PostgreSQL. Exiting.")
+            sys.exit(1)
+        try:
+            from dinnerguest.database import generate_embedding
+            embedding_func = generate_embedding
+        except Exception as exc:
+            logger.error("Could not load embedding generator: %s. Exiting.", exc)
+            sys.exit(1)
+
+        limit = args.embed_limit if args.embed_limit > 0 else 1000
+        count = backfill_embeddings_postgres(pg_conn, limit=limit, batch_size=50, embedding_func=embedding_func)
+        logger.info("Finished: generated dense vector embeddings for %d recipes in Cloud SQL.", count)
+        sys.exit(0)
 
     # Discover CSV files (either in Google Cloud Storage or local filesystem)
     raw_dir_str = str(args.raw_dir).strip()
