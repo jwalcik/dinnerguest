@@ -96,6 +96,7 @@ class RecipeMatch:
     missing_staples: List[str]
     raw_ingredients: List[str]
     instructions: List[str]
+    unused_ingredients: List[str] = field(default_factory=list)
     allergen_report: Optional[AllergenReport] = None
 
     @property
@@ -117,6 +118,7 @@ class RecipeMatch:
             "substituted_ingredients": [s.to_dict() for s in self.substituted_ingredients],
             "missing_ingredients": self.missing_ingredients,
             "missing_staples": self.missing_staples,
+            "unused_ingredients": self.unused_ingredients,
             "allergen_summary": self.allergen_report.to_dict() if self.allergen_report else None,
         }
 
@@ -242,20 +244,73 @@ class PantrySearchTool:
     def search_recipes(
         self,
         on_hand_ingredients: List[str],
+        category: Optional[str] = None,
         max_missing: int = 2,
         page: int = 1,
         page_size: int = 5,
         assume_basic_staples: bool = False,
     ) -> SearchResult:
-        """Finds recipes matching on-hand ingredients, ranking by lowest missing items and highest coverage."""
-        normalized_user_items = {normalize_ingredient_phrase(i) for i in on_hand_ingredients if i.strip()}
+        """Finds recipes matching on-hand ingredients, ranking by lowest missing items and highest coverage.
+
+        Accounts for unused ingredients (e.g. user has apples, oats, brown sugar, and onion; finds apple crisp,
+        excluding onion), supports category/meal-type filtering (e.g. 'dessert'), and leverages Cloud SQL
+        vector RAG embeddings when available.
+        """
+        normalized_user_items_map = {}
+        for i in on_hand_ingredients:
+            clean_i = i.strip()
+            if clean_i:
+                normalized_user_items_map[normalize_ingredient_phrase(clean_i)] = clean_i
+        normalized_user_items = set(normalized_user_items_map.keys())
         # Handle "dry spices" wildcard if user mentions dry spices / spices
         has_spices_wildcard = any("spice" in i or "seasoning" in i for i in normalized_user_items)
+
+        # 1. Candidate Retrieval: Cloud SQL hybrid vector/SQL query or local dataset
+        candidate_recipes = []
+        try:
+            from dinnerguest.database import fetch_pantry_candidates_from_db
+            db_candidates = fetch_pantry_candidates_from_db(
+                ingredients=on_hand_ingredients,
+                category=category,
+                limit=100,
+            )
+            if db_candidates:
+                candidate_recipes = db_candidates
+        except Exception:
+            pass
+
+        if not candidate_recipes:
+            candidate_recipes = self.recipes
 
         matches: List[RecipeMatch] = []
         staple_followup_candidates: Dict[str, int] = {}
 
-        for recipe in self.recipes:
+        for recipe in candidate_recipes:
+            # Category / meal-type filtering
+            if category:
+                cat_lower = category.lower().strip()
+                recipe_tags = [t.lower() for t in recipe.get("tags", [])]
+                recipe_title = recipe.get("title", "").lower()
+
+                if cat_lower == "dessert":
+                    is_dessert = (
+                        any(t in {"dessert", "sweet", "baking", "cookies", "crisp", "cake", "pie", "crumble", "tart", "fruit crisp"} for t in recipe_tags)
+                        or any(w in recipe_title for w in ["dessert", "cookie", "crisp", "cake", "pie", "crumble", "tart", "sweet"])
+                    )
+                    if not is_dessert:
+                        continue
+                elif cat_lower in ["soup", "stew"]:
+                    is_soup = "soup" in recipe_tags or "stew" in recipe_tags or "soup" in recipe_title or "stew" in recipe_title
+                    if not is_soup:
+                        continue
+                elif cat_lower in ["dinner", "savory", "main"]:
+                    is_savory = (
+                        any(t in {"dinner", "savory", "main", "skillet", "pasta", "beef", "pork", "chicken"} for t in recipe_tags)
+                        or any(w in recipe_title for w in ["dinner", "skillet", "pasta", "roast", "stew", "stir fry"])
+                    )
+                    if not is_savory:
+                        continue
+
             raw_ingredients: List[str] = recipe.get("ingredients", [])
             if not raw_ingredients:
                 continue
@@ -264,20 +319,22 @@ class PantrySearchTool:
             substituted_ings: List[SubstitutionSuggestion] = []
             missing_ings: List[str] = []
             missing_staples: List[str] = []
+            used_user_keys: Set[str] = set()
 
             for raw_ing in raw_ingredients:
                 norm_recipe_ing = normalize_ingredient_phrase(raw_ing)
 
                 # Direct match check
                 direct_match = False
-                for user_item in normalized_user_items:
-                    if user_item in norm_recipe_ing or norm_recipe_ing in user_item:
+                for user_key in normalized_user_items:
+                    if user_key in norm_recipe_ing or norm_recipe_ing in user_key:
                         direct_match = True
+                        used_user_keys.add(user_key)
                         break
 
-                # Wildcard check for spices (oregano, garlic powder, cumin, pepper, salt)
+                # Wildcard check for spices (oregano, garlic powder, cumin, pepper, salt, cinnamon)
                 if not direct_match and has_spices_wildcard:
-                    if any(s in norm_recipe_ing for s in ["salt", "pepper", "oregano", "powder", "spice", "cumin"]):
+                    if any(s in norm_recipe_ing for s in ["salt", "pepper", "oregano", "powder", "spice", "cumin", "cinnamon"]):
                         direct_match = True
 
                 if direct_match:
@@ -288,6 +345,7 @@ class PantrySearchTool:
                 sub = self.check_substitution(norm_recipe_ing, normalized_user_items)
                 if sub:
                     substituted_ings.append(sub)
+                    used_user_keys.add(normalize_ingredient_phrase(sub.user_ingredient))
                     continue
 
                 # Missing ingredient check
@@ -305,6 +363,13 @@ class PantrySearchTool:
                 total_items = len(raw_ingredients)
                 covered_items = len(matched_ings) + len(substituted_ings)
                 score = covered_items / total_items if total_items > 0 else 0.0
+
+                # Calculate unused user ingredients
+                unused_user_items = [
+                    orig_item
+                    for norm_key, orig_item in normalized_user_items_map.items()
+                    if norm_key not in used_user_keys
+                ]
 
                 # Count missing staples only for viable candidate matches
                 for st in missing_staples:
@@ -324,12 +389,19 @@ class PantrySearchTool:
                     missing_staples=missing_staples,
                     raw_ingredients=raw_ingredients,
                     instructions=recipe.get("instructions", []),
+                    unused_ingredients=unused_user_items,
                     allergen_report=allergen_rep,
                 )
                 matches.append(match_entry)
 
-        # Sort: lowest missing items first, then highest score
-        matches.sort(key=lambda m: (len(m.missing_ingredients), -m.match_score))
+        # Sort: lowest missing items first, then most user ingredients used (descending), then highest score
+        matches.sort(
+            key=lambda m: (
+                len(m.missing_ingredients),
+                -(len(m.matched_ingredients) + len(m.substituted_ingredients)),
+                -m.match_score,
+            )
+        )
 
         # Pagination: top 5 per page
         total_matches = len(matches)

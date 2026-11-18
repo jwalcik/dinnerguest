@@ -58,6 +58,37 @@ class TestOnHandAgent(unittest.TestCase):
             self.assertIn("💡 *Pantry Check:*", response.reply_text)
             self.assertTrue(any("on hand?" in p for p in response.staple_followups))
 
+    def test_dessert_query_with_unused_onion(self):
+        # User has apples, brown sugar, oats, and an onion, and asks for a dessert
+        query = "I have apples, brown sugar, oats, and an onion, is there a dessert I can make?"
+        response = self.agent.process_request(query)
+
+        self.assertGreater(response.total_matches, 0)
+        top_recipe = response.recipes[0]
+        self.assertIn("Crisp", top_recipe.title)
+        # Onion was unused
+        self.assertTrue(any("onion" in u.lower() for u in top_recipe.unused_ingredients))
+        # Reply text notes unused onion
+        self.assertIn("Unused Pantry Items", response.reply_text)
+        self.assertIn("onion", response.reply_text.lower())
+        # Savory recipes are not in the dessert results
+        recipe_titles = [r.title.lower() for r in response.recipes]
+        self.assertTrue(all("pork" not in t and "skillet" not in t and "bolognese" not in t for t in recipe_titles))
+
+    def test_category_and_ingredient_extraction(self):
+        query = "I have apples, brown sugar, oats, and an onion, is there a dessert I can make?"
+        category = self.agent.extract_category_from_text(query)
+        self.assertEqual(category, "dessert")
+
+        extracted_ings = self.agent.extract_ingredients_from_text(query)
+        self.assertIn("apples", [i.lower() for i in extracted_ings])
+        self.assertIn("brown sugar", [i.lower() for i in extracted_ings])
+        self.assertIn("oats", [i.lower() for i in extracted_ings])
+        self.assertTrue(any("onion" in i.lower() for i in extracted_ings))
+        # Ensure trailing question was NOT treated as an ingredient
+        self.assertFalse(any("dessert" in i.lower() for i in extracted_ings))
+        self.assertFalse(any("make" in i.lower() for i in extracted_ings))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,26 +51,31 @@ _menu_agent = MenuPlanningAgent(
 
 def find_recipes_by_on_hand_ingredients(
     ingredients: List[str],
+    category: Optional[str] = None,
     max_missing: int = 2,
     page: int = 1,
 ) -> Dict[str, Any]:
     """Finds recipes matching ingredients the user has on hand.
 
-    Handles common culinary substitutions (e.g. shallot -> onion), distinguishes
-    complete matches from partial matches, and suggests missing pantry staples.
+    Handles common culinary substitutions (e.g. shallot -> onion, brown sugar -> granulated sugar),
+    supports filtering by meal type or category (e.g. "dessert", "soup", "dinner"), accounts for when
+    not all on-hand ingredients are needed in a recipe (e.g. making an apple dessert with apples, oats,
+    and brown sugar while leaving onions unused), and suggests missing pantry staples.
     Always returns up to 5 recipes at a time.
 
     Args:
-        ingredients: List of ingredient names the user currently has (e.g. ["ground beef", "tomatoes", "onion"]).
+        ingredients: List of ingredient names the user currently has (e.g. ["apples", "brown sugar", "oats", "onion"]).
+        category: Optional meal course or type filter (e.g. "dessert", "soup", "dinner").
         max_missing: Maximum allowed missing ingredients in matching recipes (default 2).
         page: Page number for pagination (default 1, 5 recipes per page).
 
     Returns:
         A dictionary containing matching recipes, matched/substituted/missing ingredients,
-        total match count N, has_more flag, and pantry staple follow-up questions.
+        unused user ingredients, total match count N, has_more flag, and pantry staple follow-up questions.
     """
     result = _pantry_search_tool.search_recipes(
         on_hand_ingredients=ingredients,
+        category=category,
         max_missing=max_missing,
         page=page,
         page_size=5,
@@ -279,7 +284,9 @@ Your primary responsibilities include:
 
 2. Recommending recipes based on ingredients the user has on hand:
    - Call the `find_recipes_by_on_hand_ingredients` tool to find matching recipes.
-   - Consider and explain common ingredient substitutions (such as using an onion in place of shallots or scallions).
+   - When the user mentions a specific meal type or category (e.g. "dessert", "soup", "dinner"), pass it in the `category` argument.
+   - A recipe does NOT need to use all of the user's ingredients. If a user has apples, brown sugar, oats, and an onion, recommend a dessert using the apples, brown sugar, and oats, and clearly note that the onion remains unused for another meal.
+   - Consider and explain common ingredient substitutions (such as using brown sugar instead of granulated sugar, or an onion in place of shallots).
    - If a recipe is missing 1 or 2 pantry staples, ask polite follow-up questions (e.g., "Do you happen to have any dry pasta on hand?").
    - Rule: Never provide more than 5 recipe suggestions at a time. If there are more than 5 matching recipes, present the top 5, clearly inform the user that there are a total of N recipes that match their request, and ask if they would like to explore the other options.
    - For every recommended recipe, communicate the allergen notice clearly so guests remain safe.

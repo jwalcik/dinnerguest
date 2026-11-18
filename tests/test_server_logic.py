@@ -78,6 +78,18 @@ class TestServerLogic(unittest.TestCase):
         self.assertTrue("Crisp" in result["reply"])
         self.assertIn("Allergen Notice", result["reply"])
 
+    def test_on_hand_dessert_apples_brown_sugar_oats_onion(self):
+        result = _execute_agent_turn(
+            user_msg="I have apples, brown sugar, oats, and an onion, is there a dessert I can make?",
+            session_id="test_sess_apple_onion_dessert",
+            trace_id="test_trace_apple_onion_dessert",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Apple Cinnamon Crisp", result["reply"])
+        self.assertIn("Unused Pantry Items", result["reply"])
+        self.assertIn("onion", result["reply"].lower())
+        self.assertIn("Allergen Notice", result["reply"])
+
     def test_recipe_query_chicken_soup(self):
         result = _execute_agent_turn(
             user_msg="I need a recipe for chicken soup.",

@@ -80,6 +80,51 @@
       "substitutes": ["ground pork", "ground turkey", "ground chicken", "plant-based ground"],
       "ratio": "1:1",
       "note": "Ground turkey, chicken, or pork can substitute for ground beef."
+    },
+    "granulated sugar": {
+      "substitutes": ["brown sugar", "cane sugar", "coconut sugar", "honey", "maple syrup", "sugar"],
+      "ratio": "1:1 for brown or cane sugar; use 3/4 cup honey or maple syrup per 1 cup granulated sugar",
+      "note": "Brown sugar adds rich caramel notes and moisture, working well in crisps and baked goods."
+    },
+    "sugar": {
+      "substitutes": ["brown sugar", "granulated sugar", "cane sugar", "coconut sugar", "honey", "maple syrup"],
+      "ratio": "1:1 for brown sugar",
+      "note": "Brown sugar or granulated sugar can be used interchangeably in most sweet recipes."
+    },
+    "brown sugar": {
+      "substitutes": ["granulated sugar", "sugar", "cane sugar", "coconut sugar", "maple syrup", "honey", "dark brown sugar", "light brown sugar"],
+      "ratio": "1:1 with granulated sugar",
+      "note": "Granulated sugar or maple syrup provides comparable sweetness."
+    },
+    "rolled oats": {
+      "substitutes": ["oats", "quick oats", "instant oats", "steel cut oats", "old fashioned oats"],
+      "ratio": "1:1",
+      "note": "Quick oats or old-fashioned rolled oats can be used interchangeably in crisps and bakes."
+    },
+    "oats": {
+      "substitutes": ["rolled oats", "quick oats", "instant oats", "old fashioned oats"],
+      "ratio": "1:1",
+      "note": "Rolled or quick oats provide the signature crumbly texture in toppings."
+    },
+    "all-purpose flour": {
+      "substitutes": ["flour", "whole wheat flour", "oat flour", "gluten-free flour blend", "almond flour"],
+      "ratio": "1:1",
+      "note": "Whole wheat or oat flour adds hearty nutty flavor to crumb toppings."
+    },
+    "flour": {
+      "substitutes": ["all-purpose flour", "whole wheat flour", "oat flour", "gluten-free flour blend"],
+      "ratio": "1:1",
+      "note": "All-purpose or whole wheat flour provides structure to doughs and toppings."
+    },
+    "cinnamon": {
+      "substitutes": ["ground cinnamon", "pumpkin pie spice", "nutmeg", "allspice", "apple pie spice"],
+      "ratio": "1:1",
+      "note": "Warm baking spices like nutmeg, allspice, or pumpkin pie spice work well."
+    },
+    "ground cinnamon": {
+      "substitutes": ["cinnamon", "pumpkin pie spice", "nutmeg", "allspice", "apple pie spice"],
+      "ratio": "1:1",
+      "note": "Warm baking spices like nutmeg, allspice, or pumpkin pie spice work well."
     }
   }
 }

@@ -681,3 +681,125 @@ def fetch_recipes_from_db(
         return None
 
     return None
+
+
+def fetch_pantry_candidates_from_db(
+    ingredients: List[str],
+    category: Optional[str] = None,
+    limit: int = 100,
+) -> Optional[List[Dict[str, Any]]]:
+    """Queries candidate recipes from Cloud SQL using hybrid vector RAG and ingredient lookups.
+
+    1. If category is provided (e.g. 'dessert', 'soup', 'breakfast') or ingredients are given,
+       uses dense vector similarity (search_recipes_by_vector) to semantically retrieve recipes
+       matching the category and ingredients from the embedded Cloud SQL recipes.
+    2. Additionally queries recipes where ingredients_raw matches any of the primary ingredients.
+    3. Merges candidate sets and deduplicates by recipe ID.
+    """
+    candidates_by_id: Dict[str, Dict[str, Any]] = {}
+
+    # 1. Semantic Vector RAG Retrieval
+    query_terms = []
+    if category:
+        query_terms.append(category)
+    if ingredients:
+        query_terms.extend(ingredients[:4])
+    vibe_query = " ".join(query_terms).strip()
+
+    if vibe_query:
+        try:
+            vector_results = search_recipes_by_vector(vibe_query, limit=min(limit, 50))
+            if vector_results:
+                for r in vector_results:
+                    candidates_by_id[r["id"]] = r
+        except Exception as vec_err:
+            logger.debug("Vector candidate retrieval in fetch_pantry_candidates_from_db failed: %s", vec_err)
+
+    # 2. SQL Ingredient Lookup to supplement vector candidates
+    conn = get_db_connection()
+    if conn is None:
+        return list(candidates_by_id.values()) if candidates_by_id else None
+
+    try:
+        clean_ings = [re.sub(r"[^\w\s]", "", i).strip() for i in ingredients if i.strip()]
+        clean_ings = [i for i in clean_ings if i and len(i) > 2][:5]
+
+        if not clean_ings and not category:
+            conn.close()
+            return list(candidates_by_id.values()) if candidates_by_id else None
+
+        # Build SQL conditions
+        sql_conds = []
+        params: Dict[str, Any] = {"limit": limit}
+
+        if category:
+            sql_conds.append("(title ILIKE :cat OR :cat_raw = ANY(tags) OR ingredients_raw::text ILIKE :cat)")
+            params["cat"] = f"%{category.strip()}%"
+            params["cat_raw"] = category.strip().lower()
+
+        if clean_ings:
+            ing_clauses = []
+            for idx, ing in enumerate(clean_ings):
+                key = f"ing_{idx}"
+                ing_clauses.append(f"ingredients_raw::text ILIKE :{key}")
+                params[key] = f"%{ing}%"
+            sql_conds.append(f"({' OR '.join(ing_clauses)})")
+
+        where_clause = " AND ".join(sql_conds) if sql_conds else "TRUE"
+        sql_str = f"""
+            SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+            FROM recipes
+            WHERE {where_clause}
+            LIMIT :limit
+        """
+
+        if hasattr(conn, "run"):
+            rows = conn.run(sql_str, **params)
+            for row in rows:
+                r_id = row[0]
+                if r_id not in candidates_by_id:
+                    candidates_by_id[r_id] = {
+                        "id": r_id,
+                        "title": row[1],
+                        "servings": row[2],
+                        "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                        "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                        "tags": row[5] or [],
+                    }
+            conn.close()
+
+        elif hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            # Convert named params to %s
+            param_order = []
+            formatted_sql = sql_str
+            for k in params:
+                pattern = f":{k}"
+                if pattern in formatted_sql:
+                    param_order.append(params[k])
+                    formatted_sql = formatted_sql.replace(pattern, "%s")
+            cur.execute(formatted_sql, tuple(param_order))
+            rows = cur.fetchall()
+            for row in rows:
+                r_id = row[0]
+                if r_id not in candidates_by_id:
+                    candidates_by_id[r_id] = {
+                        "id": r_id,
+                        "title": row[1],
+                        "servings": row[2],
+                        "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                        "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                        "tags": row[5] or [],
+                    }
+            cur.close()
+            conn.close()
+
+    except Exception as exc:
+        logger.warning("Error fetching pantry candidates from Cloud SQL: %s", exc)
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return list(candidates_by_id.values()) if candidates_by_id else None
+

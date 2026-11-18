@@ -67,6 +67,20 @@ class TestPantrySearchTool(unittest.TestCase):
         prompts_str = " ".join(result.staple_followup_prompts).lower()
         self.assertTrue("pasta" in prompts_str or "olive oil" in prompts_str or "oregano" in prompts_str)
 
+    def test_apple_dessert_with_unused_onion_and_sugar_sub(self):
+        # User has apples, brown sugar, oats, and an onion
+        # Should match apple crisp dessert and exclude onion
+        user_items = ["apples", "brown sugar", "oats", "onion"]
+        result = self.search_tool.search_recipes(user_items, category="dessert", max_missing=3)
+
+        self.assertGreater(result.total_matches_count, 0)
+        crisp = result.recipes[0]
+        self.assertIn("Crisp", crisp.title)
+        self.assertIn("onion", crisp.unused_ingredients)
+        # Verify brown sugar substitution for granulated sugar
+        sub_targets = [s.recipe_ingredient for s in crisp.substituted_ingredients]
+        self.assertTrue(any("sugar" in s for s in sub_targets))
+
 
 if __name__ == "__main__":
     unittest.main()

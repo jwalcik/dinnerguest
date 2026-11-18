@@ -1098,9 +1098,13 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
         from dinnerguest.agents.on_hand_agent import OnHandRecommendationAgent
         on_hand_agent = OnHandRecommendationAgent()
         extracted = on_hand_agent.extract_ingredients_from_text(user_msg)
-        events.append({"type": "tool_call", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}})
-        resp = on_hand_agent.process_request(user_msg)
-        events.append({"type": "tool_result", "tool": "find_recipes_by_on_hand_ingredients", "args": {"ingredients": extracted}, "result": resp.to_dict()})
+        category = on_hand_agent.extract_category_from_text(user_msg)
+        tool_args: Dict[str, Any] = {"ingredients": extracted}
+        if category:
+            tool_args["category"] = category
+        events.append({"type": "tool_call", "tool": "find_recipes_by_on_hand_ingredients", "args": tool_args})
+        resp = on_hand_agent.process_request(user_msg, category=category)
+        events.append({"type": "tool_result", "tool": "find_recipes_by_on_hand_ingredients", "args": tool_args, "result": resp.to_dict()})
         return {
             "reply": resp.reply_text,
             "session_id": session_id,
