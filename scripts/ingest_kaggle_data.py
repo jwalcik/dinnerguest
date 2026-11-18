@@ -255,11 +255,15 @@ def init_postgres_db(conn: Any, drop_existing: bool = False) -> None:
         except Exception:
             pass
 
-        conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        try:
+            conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        except Exception as exc:
+            logger.debug("Could not create title index (may already exist or lack ownership): %s", exc)
+
         try:
             conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Could not create tags index: %s", exc)
 
         # Grant table access so Cloud SQL Studio (postgres / IAM users) can view and query recipes
         for grant_target in ("PUBLIC", "postgres"):
@@ -276,29 +280,40 @@ def init_postgres_db(conn: Any, drop_existing: bool = False) -> None:
             logger.warning("Could not create vector extension: %s", exc)
             conn.rollback()
 
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS recipes (
-                id VARCHAR(64) PRIMARY KEY,
-                title TEXT NOT NULL,
-                servings INTEGER NOT NULL DEFAULT 4,
-                ingredients_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
-                instructions_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
-                tags TEXT[] NOT NULL DEFAULT '{}',
-                embedding vector(768),
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        try:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recipes (
+                    id VARCHAR(64) PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    servings INTEGER NOT NULL DEFAULT 4,
+                    ingredients_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    instructions_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    tags TEXT[] NOT NULL DEFAULT '{}',
+                    embedding vector(768),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-            """
-        )
+        except Exception as exc:
+            logger.warning("Table creation skipped or failed: %s", exc)
+            conn.rollback()
+
         try:
             cur.execute("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS embedding vector(768);")
         except Exception:
             conn.rollback()
 
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        except Exception as exc:
+            logger.debug("Could not create title index (may already exist or lack ownership): %s", exc)
+            conn.rollback()
+
         try:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
-        except Exception:
+        except Exception as exc:
+            logger.debug("Could not create tags index: %s", exc)
             conn.rollback()
 
         # Grant table access so Cloud SQL Studio (postgres / IAM users) can view and query recipes
