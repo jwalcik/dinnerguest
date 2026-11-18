@@ -89,8 +89,31 @@ def normalize_recipe_row(
     }
 
 
+def is_recipe_csv(fieldnames: Optional[List[str]]) -> bool:
+    """Validates that a CSV actually contains recipe data rather than allergen taxonomies or user interactions."""
+    if not fieldnames:
+        return False
+    lower_fields = {f.lower().strip() for f in fieldnames if f}
+    has_ingredients = any(
+        k in lower_fields
+        for k in ["ingredients", "recipe_ingredients", "ingredients_raw", "ingredient_list"]
+    )
+    has_instructions = any(
+        k in lower_fields
+        for k in ["directions", "instructions", "steps", "recipe_instructions", "description"]
+    )
+    return has_ingredients and has_instructions
+
+
 def stream_recipes_from_reader(reader: csv.DictReader, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
     """Streams and normalizes recipe rows from an initialized csv.DictReader."""
+    if not is_recipe_csv(reader.fieldnames):
+        logger.warning(
+            "Skipping non-recipe CSV (headers: %s). Only files containing both ingredients and instructions are ingested into recipes table.",
+            reader.fieldnames,
+        )
+        return
+
     count = 0
     for row in reader:
         title = row.get("title") or row.get("name") or row.get("recipe_name") or "Untitled Recipe"

@@ -17,6 +17,7 @@ from scripts.ingest_kaggle_data import (
     init_postgres_db,
     init_sqlite_db,
     insert_batch_postgres,
+    is_recipe_csv,
     normalize_recipe_row,
     parse_gcs_uri,
     stream_recipes_from_csv,
@@ -214,6 +215,27 @@ class TestIngestKaggleData(unittest.TestCase):
         finally:
             if db_path.exists():
                 db_path.unlink()
+
+
+    def test_is_recipe_csv_validation(self):
+        # Valid recipe CSV headers
+        self.assertTrue(is_recipe_csv(["id", "name", "ingredients", "steps"]))
+        self.assertTrue(is_recipe_csv(["title", "ingredients", "directions"]))
+
+        # Non-recipe CSV headers (allergens, interactions)
+        self.assertFalse(is_recipe_csv(["Food", "Allergen", "Prediction"]))
+        self.assertFalse(is_recipe_csv(["user_id", "recipe_id", "date", "rating", "review"]))
+        self.assertFalse(is_recipe_csv([]))
+        self.assertFalse(is_recipe_csv(None))
+
+    def test_stream_recipes_skips_non_recipe_csv(self):
+        csv_data = "Food,Allergen,Class\nPeanut Butter,Peanut,High\n"
+        mock_blob = MagicMock()
+        mock_blob.open.return_value.__enter__.return_value = io.StringIO(csv_data)
+
+        # Should yield 0 items and log warning
+        recipes = list(stream_recipes_from_gcs_blob(mock_blob))
+        self.assertEqual(len(recipes), 0)
 
 
 if __name__ == "__main__":
