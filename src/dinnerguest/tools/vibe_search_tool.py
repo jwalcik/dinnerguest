@@ -115,139 +115,127 @@ class VibeSearchTool:
         filters: Optional[Dict[str, str]] = None,
         limit: int = 5,
     ) -> List[VibeRecipeResult]:
-        """Finds recipes matching mood, taste, or flavor profile."""
+        """Finds recipes matching mood, taste, or flavor profile.
+
+        Prioritizes dense vector RAG via Cloud SQL pgvector when connected.
+        Falls back to local JSON dataset with dynamic token relevance scoring
+        only if Cloud SQL is absent or unreachable.
+        """
+        # 1. Primary path: Vector RAG search against PostgreSQL pgvector
+        try:
+            from dinnerguest.database import search_recipes_by_vector
+            db_recipes = search_recipes_by_vector(query, limit=limit)
+            if db_recipes is not None and len(db_recipes) > 0:
+                results: List[VibeRecipeResult] = []
+                for r in db_recipes:
+                    allergen_rep = self.allergen_checker.check_recipe_ingredients(r.get("ingredients", []))
+                    results.append(
+                        VibeRecipeResult(
+                            recipe_id=r["id"],
+                            title=r["title"],
+                            servings=r.get("servings", 4),
+                            prep_time_minutes=r.get("prep_time_minutes", 15),
+                            cook_time_minutes=r.get("cook_time_minutes", 20),
+                            tags=r.get("tags", []),
+                            matched_vibes=[query],
+                            score=float(r.get("score", 1.0)),
+                            ingredients=r.get("ingredients", []),
+                            instructions=r.get("instructions", []),
+                            allergen_report=allergen_rep,
+                        )
+                    )
+                return results[:limit]
+        except Exception:
+            pass
+
+        # 2. Fallback path: Local JSON dataset scoring via dynamic semantic token matching
         query_clean = query.lower()
-        query_words = set(re.findall(r"\b\w+\b", query_clean))
+        query_words = set(re.findall(r"\b[a-zA-Z]{3,}\b", query_clean))
         matched_vibe_cats = self.extract_vibe_tokens(query_clean)
 
         filters = filters or {}
         required_format = filters.get("format", "").lower()
         required_profile = filters.get("flavor_profile", "").lower()
-        required_protein = filters.get("protein", "").lower()
-        required_ingredient = filters.get("ingredient", "").lower()
 
-        # Recognized key culinary ingredient nouns
-        ing_keywords = {
-            "potato": ["potato", "potatoes"],
-            "carrot": ["carrot", "carrots"],
-            "apple": ["apple", "apples"],
-            "turkey": ["turkey"],
-            "chicken": ["chicken"],
-            "beef": ["beef"],
-            "pork": ["pork"],
-            "tuna": ["tuna", "ahi"],
-            "salmon": ["salmon"],
-            "fish": ["fish", "salmon", "tuna", "cod", "halibut", "tilapia", "ahi"],
-            "seafood": ["shrimp", "fish", "tuna", "salmon", "seafood", "prawn"],
-            "shrimp": ["shrimp", "prawn", "prawns"],
-            "lamb": ["lamb"],
-            "tofu": ["tofu"],
-            "mushroom": ["mushroom", "mushrooms"],
-            "tomato": ["tomato", "tomatoes"],
-            "stuffing": ["stuffing"],
+        # Extract substantive culinary query tokens (excluding generic stopwords)
+        substantive_tokens = {
+            w for w in query_words
+            if w not in VIBE_STOP_WORDS and len(w) > 2
         }
 
-        specified_ingredients: Set[str] = set()
-        if required_ingredient:
-            specified_ingredients.add(required_ingredient)
-        if required_protein:
-            specified_ingredients.add(required_protein)
+        results = []
 
-        for base_ing, variants in ing_keywords.items():
-            if any(v in query_words for v in variants):
-                specified_ingredients.add(base_ing)
-
-        # Check if dynamic database query returns additional recipes from Cloud SQL
-        candidate_pool = list(self.recipes)
-        try:
-            from dinnerguest.database import search_recipes_in_db
-            primary_ing = required_ingredient or required_protein or (list(specified_ingredients)[0] if specified_ingredients else None)
-            db_candidates = search_recipes_in_db(
-                query_text=query,
-                ingredient=primary_ing,
-                limit=limit * 3,
-            )
-            if db_candidates:
-                existing_ids = {r["id"] for r in candidate_pool}
-                for db_r in db_candidates:
-                    if db_r["id"] not in existing_ids:
-                        candidate_pool.append(db_r)
-                        existing_ids.add(db_r["id"])
-        except Exception:
-            pass
-
-        results: List[VibeRecipeResult] = []
-
-        for recipe in candidate_pool:
+        for recipe in self.recipes:
             title_lower = recipe["title"].lower()
             recipe_tags = set(t.lower() for t in recipe.get("tags", []))
-            raw_text = (
-                title_lower
-                + " "
-                + " ".join(recipe_tags)
-                + " "
-                + " ".join(recipe.get("instructions", [])).lower()
-                + " "
-                + " ".join(recipe.get("ingredients", [])).lower()
-            )
+            recipe_ings = [i.lower() for i in recipe.get("ingredients", [])]
+            recipe_insts = [ins.lower() for ins in recipe.get("instructions", [])]
+            raw_text = f"{title_lower} {' '.join(recipe_tags)} {' '.join(recipe_ings)} {' '.join(recipe_insts)}"
 
-            # Core ingredient requirement check
-            if specified_ingredients:
-                has_all_ingredients = True
-                for ing in specified_ingredients:
-                    variants = ing_keywords.get(ing, [ing])
-                    if not any(v in raw_text for v in variants):
-                        has_all_ingredients = False
+            # Format constraint
+            if required_format and required_format not in raw_text:
+                continue
+
+            # Flavor profile constraint
+            if required_profile == "savory":
+                is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"])
+                if "savory" not in recipe_tags and "savory" not in raw_text and is_sweet_dish:
+                    continue
+            elif required_profile == "sweet":
+                is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"]) or "sweet" in raw_text
+                if not is_sweet_dish:
+                    continue
+
+            # If user queried substantive tokens (e.g. 'tuna', 'potato', 'soup'),
+            # ensure recipe has at least one matching token or stem in its text
+            if substantive_tokens:
+                matches_any_substantive = False
+                for token in substantive_tokens:
+                    stem = token.rstrip("es").rstrip("s")
+                    if stem in title_lower or stem in " ".join(recipe_tags) or stem in " ".join(recipe_ings):
+                        matches_any_substantive = True
                         break
-                if not has_all_ingredients:
+                # Only enforce substantive check if there were specific ingredient/dish keywords
+                # and vibe category didn't match
+                if not matches_any_substantive and not matched_vibe_cats:
                     continue
 
-            # Filtering constraints
-            if required_format:
-                if required_format not in raw_text:
-                    continue
-            if required_profile:
-                if required_profile == "savory":
-                    is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"])
-                    if "savory" not in recipe_tags and "savory" not in raw_text and is_sweet_dish:
-                        continue
-                elif required_profile == "sweet":
-                    is_sweet_dish = any(t in recipe_tags for t in ["sweet", "dessert", "baking", "cookies", "crisp"]) or "sweet" in raw_text
-                    if not is_sweet_dish:
-                        continue
-                else:
-                    if required_profile not in recipe_tags and required_profile not in raw_text:
-                        continue
-            if required_protein:
-                if required_protein not in raw_text:
-                    continue
-
-            # Compute score
+            # Compute dynamic relevance score
             score = 0.0
             matched_vibes_list: List[str] = []
 
-            # Tag intersections
-            for tag in recipe_tags:
-                if tag in query_words or tag in matched_vibe_cats:
-                    score += 2.0
-                    matched_vibes_list.append(tag)
+            # 1. Exact query phrase in title bonus
+            if query_clean in title_lower:
+                score += 8.0
+                matched_vibes_list.append(query_clean)
 
-            # Query words in title
-            for w in query_words:
-                if w in VIBE_STOP_WORDS:
-                    continue
-                if len(w) > 3 and w in title_lower:
-                    score += 3.0
+            # 2. Substantive word matches in title (weighted heavily)
+            for w in substantive_tokens:
+                stem = w.rstrip("es").rstrip("s")
+                if stem in title_lower:
+                    score += 5.0
                     matched_vibes_list.append(w)
-                elif len(w) > 3 and w in raw_text:
+                elif stem in " ".join(recipe_tags):
+                    score += 3.5
+                    matched_vibes_list.append(w)
+                elif stem in " ".join(recipe_ings):
+                    score += 2.5
+                    matched_vibes_list.append(w)
+                elif stem in raw_text:
                     score += 0.5
 
-            # Category synonym matches
+            # 3. Tag intersections
+            for tag in recipe_tags:
+                if tag in query_words or tag in matched_vibe_cats:
+                    score += 2.5
+                    matched_vibes_list.append(tag)
+
+            # 4. Taxonomy category synonym matches
             for cat in matched_vibe_cats:
-                cat_info = self.vibe_categories[cat]
+                cat_info = self.vibe_categories.get(cat, {})
                 synonyms = set(cat_info.get("synonyms", []))
                 if recipe_tags.intersection(synonyms):
-                    score += 2.5
+                    score += 3.0
                     matched_vibes_list.append(cat)
 
             if score >= 2.0:

@@ -164,3 +164,29 @@ class MenuPlanningAgent:
             all_dishes_safe_for=safe_for,
             grocery_item_count=len(grocery_list.items),
         )
+
+
+# ADK Agent Definition
+import os
+from dinnerguest.adk import Agent
+
+MENU_AGENT_INSTRUCTION = """You are the Menu & Event Planning Sub-Agent for Dinnerguest.
+Your role is to coordinate multi-course meal planning, guest serving calculations,
+cross-recipe allergen safety, and grocery list generation for events and dinner parties.
+
+Guidelines:
+1. Help users design balanced multi-course menus (Appetizer, Main, Side, Dessert).
+2. Save event menus using `save_event_menu` with their guest count and theme.
+3. Automatically scale dishes to the guest count and report allergen safety.
+4. When requested, generate consolidated grocery lists for the saved event menus.
+"""
+
+
+menu_agent = Agent(
+    name="MenuAgent",
+    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    description="Specialized sub-agent for multi-course meal planning, serving scaling, allergen safety, and event persistence.",
+    instruction=MENU_AGENT_INSTRUCTION,
+    tools=[],
+)
+

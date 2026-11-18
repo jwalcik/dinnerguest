@@ -598,10 +598,14 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             list_event_menus,
             generate_grocery_list_for_menu,
         ]
+        tool_map = {fn.__name__: fn for fn in available_tools}
 
-        response = client.models.generate_content(
+        events: List[Dict[str, Any]] = [
+            {"type": "thought", "text": f"Dinnerguest LLM agent active ({model_name}). Processing query with tool orchestrator..."}
+        ]
+
+        chat = client.chats.create(
             model=model_name,
-            contents=user_msg,
             config=types.GenerateContentConfig(
                 system_instruction=DINNERGUEST_INSTRUCTION,
                 tools=available_tools,
@@ -609,17 +613,49 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             ),
         )
 
-        events: List[Dict[str, Any]] = [
-            {"type": "thought", "text": f"Dinnerguest LLM reasoning active ({model_name}). Processing query with tool orchestrator..."}
-        ]
+        response = chat.send_message(user_msg)
 
-        if getattr(response, "function_calls", None):
-            for call in response.function_calls:
+        # Loop through tool execution turns if model invokes function calls
+        for _ in range(5):
+            function_calls = getattr(response, "function_calls", None)
+            if not function_calls:
+                break
+
+            tool_responses = []
+            for call in function_calls:
+                call_name = getattr(call, "name", "")
+                call_args = dict(getattr(call, "args", {}) or {})
                 events.append({
                     "type": "tool_call",
-                    "tool": getattr(call, "name", "tool"),
-                    "args": dict(getattr(call, "args", {}) or {}),
+                    "tool": call_name,
+                    "args": call_args,
                 })
+                fn = tool_map.get(call_name)
+                if fn:
+                    try:
+                        tool_result = fn(**call_args)
+                    except Exception as fn_err:
+                        tool_result = {"error": str(fn_err)}
+                else:
+                    tool_result = {"error": f"Tool '{call_name}' not recognized."}
+
+                events.append({
+                    "type": "tool_result",
+                    "tool": call_name,
+                    "args": call_args,
+                    "result": tool_result,
+                })
+                tool_responses.append(
+                    types.Part.from_function_response(
+                        name=call_name,
+                        response={"result": tool_result},
+                    )
+                )
+
+            if tool_responses:
+                response = chat.send_message(tool_responses)
+            else:
+                break
 
         reply_text = getattr(response, "text", "") or ""
         if reply_text.strip():

@@ -316,21 +316,10 @@ Formatting Guidelines:
 Be warm, conversational, encouraging, and clear.
 """
 
-# Attempt ADK import; provide fallback for environments without google-adk installed
-try:
-    from google.adk.agents.llm_agent import Agent
-except ImportError:
-    try:
-        from google.adk.agents import Agent
-    except ImportError:
-        try:
-            from google.adk import Agent
-        except ImportError:
-            # Fallback mock for local test environments without google-adk installed
-            class Agent:  # type: ignore
-                def __init__(self, **kwargs: Any):
-                    for k, v in kwargs.items():
-                        setattr(self, k, v)
+from dinnerguest.adk import Agent
+from dinnerguest.agents.menu_agent import menu_agent
+from dinnerguest.agents.on_hand_agent import on_hand_agent
+from dinnerguest.agents.vibe_agent import vibe_agent
 
 
 root_agent = Agent(
@@ -338,6 +327,11 @@ root_agent = Agent(
     model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
     description="Culinary orchestrator assisting with meal planning, on-hand recipe discovery, scaling, and allergen checks.",
     instruction=DINNERGUEST_INSTRUCTION,
+    sub_agents=[
+        vibe_agent,
+        on_hand_agent,
+        menu_agent,
+    ],
     tools=[
         find_recipes_by_on_hand_ingredients,
         search_recipes_by_vibe,
@@ -350,3 +344,4 @@ root_agent = Agent(
         generate_grocery_list_for_menu,
     ],
 )
+

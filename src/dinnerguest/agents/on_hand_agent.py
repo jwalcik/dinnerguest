@@ -6,6 +6,7 @@ enforces 5-recipe pagination rules with match counts, and generates pantry stapl
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -173,3 +174,42 @@ class OnHandRecommendationAgent:
             recipes=search_result.recipes,
             staple_followups=search_result.staple_followup_prompts,
         )
+
+
+# ADK Agent Definition
+from dinnerguest.adk import Agent
+
+ON_HAND_AGENT_INSTRUCTION = """You are the On-Hand Recipe Discovery Sub-Agent for Dinnerguest.
+Your role is to find recipes matching ingredients the user already has in their pantry/refrigerator.
+
+Guidelines:
+1. Call `find_recipes_by_on_hand_ingredients` with the user's available ingredients.
+2. Consider and explain culinary substitutions (e.g., using onion instead of shallots).
+3. If a recipe is missing 1 or 2 pantry staples, ask polite follow-up questions (e.g., "Do you happen to have any dry pasta on hand?").
+4. Never suggest more than 5 recipes at a time. If there are more than 5 matches, show the top 5, inform the user of the total N matching recipes, and ask if they'd like to see more.
+5. For every recipe, clearly include the allergen notice.
+"""
+
+
+def find_recipes_by_on_hand_ingredients_adk(
+    ingredients: List[str],
+    max_missing: int = 2,
+    page: int = 1,
+) -> Dict[str, Any]:
+    tool = PantrySearchTool()
+    return tool.search_recipes(
+        on_hand_ingredients=ingredients,
+        max_missing=max_missing,
+        page=page,
+        page_size=5,
+    ).to_dict()
+
+
+on_hand_agent = Agent(
+    name="OnHandAgent",
+    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    description="Specialized sub-agent for finding recipes matching pantry/on-hand ingredients with substitutions and staple probing.",
+    instruction=ON_HAND_AGENT_INSTRUCTION,
+    tools=[find_recipes_by_on_hand_ingredients_adk],
+)
+

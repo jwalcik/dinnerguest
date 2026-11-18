@@ -20,6 +20,11 @@ class TestDinnerguestAgent(unittest.TestCase):
         self.assertEqual(root_agent.name, "Dinnerguest")
         self.assertIsNotNone(root_agent.instruction)
         self.assertEqual(len(root_agent.tools), 9)
+        self.assertEqual(len(root_agent.sub_agents), 3)
+        sub_names = [a.name for a in root_agent.sub_agents]
+        self.assertIn("VibeAgent", sub_names)
+        self.assertIn("OnHandAgent", sub_names)
+        self.assertIn("MenuAgent", sub_names)
 
     def test_event_menu_tools(self):
         # Save menu

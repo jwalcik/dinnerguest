@@ -1,16 +1,65 @@
 """Unit tests for VibeRecommendationAgent dialogue and guardrails."""
 
 import unittest
+from unittest.mock import patch
+
 from dinnerguest.agents.vibe_agent import (
     MAX_CLARIFYING_QUESTIONS,
     VibeDialogueState,
     VibeRecommendationAgent,
+    vibe_agent,
 )
+from dinnerguest.tools.vibe_search_tool import VibeSearchTool
 
 
 class TestVibeAgent(unittest.TestCase):
     def setUp(self):
         self.agent = VibeRecommendationAgent()
+
+    def test_vibe_agent_adk_definition(self):
+        """Validates that vibe_agent is defined as an ADK Agent instance."""
+        self.assertEqual(vibe_agent.name, "VibeAgent")
+        self.assertIsNotNone(vibe_agent.instruction)
+        self.assertGreaterEqual(len(vibe_agent.tools), 1)
+
+    def test_vector_search_prioritized_when_sql_present(self):
+        """Validates that search_by_vibe queries Cloud SQL pgvector when present."""
+        tool = VibeSearchTool()
+        mock_db_results = [
+            {
+                "id": "recipe_sql_001",
+                "title": "Cloud SQL Vector Seared Tuna",
+                "servings": 2,
+                "prep_time_minutes": 10,
+                "cook_time_minutes": 10,
+                "tags": ["spicy", "seafood", "quick"],
+                "score": 0.95,
+                "ingredients": ["fresh tuna steak", "wasabi", "soy sauce"],
+                "instructions": ["Sear tuna on high heat for 1 minute per side."],
+            }
+        ]
+        with patch("dinnerguest.database.search_recipes_by_vector", return_value=mock_db_results) as mock_search:
+            results = tool.search_by_vibe("spicy tuna")
+            mock_search.assert_called_once_with("spicy tuna", limit=5)
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].title, "Cloud SQL Vector Seared Tuna")
+
+    def test_fallback_to_local_json_only_when_sql_absent(self):
+        """Validates that search_by_vibe falls back to local JSON only when DB returns None."""
+        tool = VibeSearchTool()
+        with patch("dinnerguest.database.search_recipes_by_vector", return_value=None):
+            results = tool.search_by_vibe("spicy tuna")
+            self.assertGreaterEqual(len(results), 1)
+            self.assertIn("Tuna", results[0].title)
+
+    def test_spicy_tuna_never_returns_dan_dan_pork(self):
+        """Validates that a query for spicy tuna returns tuna and not Dan Dan pork noodles."""
+        tool = VibeSearchTool()
+        with patch("dinnerguest.database.search_recipes_by_vector", return_value=None):
+            results = tool.search_by_vibe("I'd like to cook a spicy tuna dish")
+            self.assertGreaterEqual(len(results), 1)
+            self.assertIn("Tuna", results[0].title)
+            self.assertNotIn("Dan Dan Pork", results[0].title)
 
     def test_spicy_pork_clarifying_question(self):
         # User asks: "I would like a spicy pork dish"

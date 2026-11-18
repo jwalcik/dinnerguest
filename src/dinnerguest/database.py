@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,12 @@ def init_and_seed_db() -> Dict[str, Any]:
             canonical_recipes = json.load(f)
 
         if hasattr(conn, "run"):
-            # Ensure table exists
+            # Ensure vector extension and table exist
+            try:
+                conn.run("CREATE EXTENSION IF NOT EXISTS vector;")
+            except Exception:
+                pass
+
             conn.run("""
                 CREATE TABLE IF NOT EXISTS recipes (
                     id VARCHAR(64) PRIMARY KEY,
@@ -176,34 +182,70 @@ def init_and_seed_db() -> Dict[str, Any]:
                     tags TEXT[] NOT NULL DEFAULT '{}'
                 )
             """)
+
+            try:
+                conn.run("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS embedding vector(768);")
+            except Exception:
+                pass
+
             count_rows = conn.run("SELECT COUNT(*) FROM recipes")
             curr_count = count_rows[0][0] if count_rows else 0
 
             # Insert or update canonical recipes
             for r in canonical_recipes:
-                conn.run("""
-                    INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
-                    VALUES (:id, :title, :servings, :ing::jsonb, :inst::jsonb, :tags)
-                    ON CONFLICT (id) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        servings = EXCLUDED.servings,
-                        ingredients_raw = EXCLUDED.ingredients_raw,
-                        instructions_raw = EXCLUDED.instructions_raw,
-                        tags = EXCLUDED.tags
-                """,
-                    id=r["id"],
-                    title=r["title"],
-                    servings=r.get("servings", 4),
-                    ing=json.dumps(r.get("ingredients", [])),
-                    inst=json.dumps(r.get("instructions", [])),
-                    tags=r.get("tags", []),
-                )
+                # Try generating embedding for vector RAG
+                vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
+                vec = generate_embedding(vibe_text)
+                if vec:
+                    vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
+                    conn.run("""
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags, embedding)
+                        VALUES (:id, :title, :servings, :ing::jsonb, :inst::jsonb, :tags, :vec::vector)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags,
+                            embedding = EXCLUDED.embedding
+                    """,
+                        id=r["id"],
+                        title=r["title"],
+                        servings=r.get("servings", 4),
+                        ing=json.dumps(r.get("ingredients", [])),
+                        inst=json.dumps(r.get("instructions", [])),
+                        tags=r.get("tags", []),
+                        vec=vec_str,
+                    )
+                else:
+                    conn.run("""
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
+                        VALUES (:id, :title, :servings, :ing::jsonb, :inst::jsonb, :tags)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags
+                    """,
+                        id=r["id"],
+                        title=r["title"],
+                        servings=r.get("servings", 4),
+                        ing=json.dumps(r.get("ingredients", [])),
+                        inst=json.dumps(r.get("instructions", [])),
+                        tags=r.get("tags", []),
+                    )
             conn.close()
             logger.info("Successfully synced %d recipes into Cloud SQL PostgreSQL database.", len(canonical_recipes))
             return {"status": "success", "synced_recipes": len(canonical_recipes), "previous_count": curr_count}
 
         elif hasattr(conn, "cursor"):
             cur = conn.cursor()
+            try:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            except Exception:
+                pass
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS recipes (
                     id VARCHAR(64) PRIMARY KEY,
@@ -214,28 +256,58 @@ def init_and_seed_db() -> Dict[str, Any]:
                     tags TEXT[] NOT NULL DEFAULT '{}'
                 )
             """)
+
+            try:
+                cur.execute("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS embedding vector(768);")
+            except Exception:
+                pass
+
             cur.execute("SELECT COUNT(*) FROM recipes")
             row = cur.fetchone()
             curr_count = row[0] if row else 0
 
             for r in canonical_recipes:
-                cur.execute("""
-                    INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
-                    VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s)
-                    ON CONFLICT (id) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        servings = EXCLUDED.servings,
-                        ingredients_raw = EXCLUDED.ingredients_raw,
-                        instructions_raw = EXCLUDED.instructions_raw,
-                        tags = EXCLUDED.tags
-                """, (
-                    r["id"],
-                    r["title"],
-                    r.get("servings", 4),
-                    json.dumps(r.get("ingredients", [])),
-                    json.dumps(r.get("instructions", [])),
-                    r.get("tags", []),
-                ))
+                vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
+                vec = generate_embedding(vibe_text)
+                if vec:
+                    vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
+                    cur.execute("""
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags, embedding)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s::vector)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags,
+                            embedding = EXCLUDED.embedding
+                    """, (
+                        r["id"],
+                        r["title"],
+                        r.get("servings", 4),
+                        json.dumps(r.get("ingredients", [])),
+                        json.dumps(r.get("instructions", [])),
+                        r.get("tags", []),
+                        vec_str,
+                    ))
+                else:
+                    cur.execute("""
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags
+                    """, (
+                        r["id"],
+                        r["title"],
+                        r.get("servings", 4),
+                        json.dumps(r.get("ingredients", [])),
+                        json.dumps(r.get("instructions", [])),
+                        r.get("tags", []),
+                    ))
             conn.commit()
             cur.close()
             conn.close()
@@ -251,6 +323,183 @@ def init_and_seed_db() -> Dict[str, Any]:
         return {"status": "error", "error": str(exc)}
 
     return {"status": "skipped"}
+
+
+def generate_embedding(text: str) -> Optional[List[float]]:
+    """Generates a 768-dimensional embedding using Google GenAI or Vertex AI.
+
+    Falls back safely to None if credentials or client libraries are unavailable.
+    """
+    project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+    # 1. Attempt using google.genai Client
+    try:
+        from google import genai
+        if project:
+            client = genai.Client(vertexai=True, project=project, location=location)
+            res = client.models.embed_content(
+                model="text-embedding-004",
+                contents=text,
+            )
+            if hasattr(res, "embeddings") and res.embeddings:
+                return list(res.embeddings[0].values)
+    except Exception as exc:
+        logger.debug("google.genai embedding generation unavailable: %s", exc)
+
+    # 2. Attempt using vertexai TextEmbeddingModel
+    try:
+        from vertexai.language_models import TextEmbeddingModel
+        model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+        embeddings = model.get_embeddings([text])
+        if embeddings:
+            return list(embeddings[0].values)
+    except Exception as exc:
+        logger.debug("vertexai TextEmbeddingModel unavailable: %s", exc)
+
+    return None
+
+
+def search_recipes_by_vector(
+    query_text: str,
+    limit: int = 5,
+) -> Optional[List[Dict[str, Any]]]:
+    """Queries Cloud SQL PostgreSQL using pgvector cosine distance (<=>).
+
+    Returns None if Cloud SQL is unreachable/unconfigured, allowing seamless
+    fallback to the local recipe dataset for tests and offline development.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return None
+
+    try:
+        # 1. Attempt dense vector search via pgvector if an embedding can be generated
+        query_vector = generate_embedding(query_text)
+        if query_vector is not None:
+            vec_str = "[" + ",".join(str(round(v, 6)) for v in query_vector) + "]"
+            if hasattr(conn, "run"):
+                try:
+                    rows = conn.run("""
+                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                               (embedding <=> :vec::vector) AS distance
+                        FROM recipes
+                        WHERE embedding IS NOT NULL
+                        ORDER BY distance ASC
+                        LIMIT :limit
+                    """, vec=vec_str, limit=limit)
+                    if rows:
+                        recipes = []
+                        for row in rows:
+                            recipes.append({
+                                "id": row[0],
+                                "title": row[1],
+                                "servings": row[2],
+                                "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                                "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                                "tags": row[5] or [],
+                                "score": max(0.1, 1.0 - float(row[6])) if row[6] is not None else 1.0,
+                            })
+                        conn.close()
+                        return recipes
+                except Exception as pg_err:
+                    logger.debug("pgvector cosine query failed, falling back to text rank: %s", pg_err)
+
+            elif hasattr(conn, "cursor"):
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                               (embedding <=> %s::vector) AS distance
+                        FROM recipes
+                        WHERE embedding IS NOT NULL
+                        ORDER BY distance ASC
+                        LIMIT %s
+                    """, (vec_str, limit))
+                    rows = cur.fetchall()
+                    if rows:
+                        recipes = []
+                        for row in rows:
+                            recipes.append({
+                                "id": row[0],
+                                "title": row[1],
+                                "servings": row[2],
+                                "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                                "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                                "tags": row[5] or [],
+                                "score": max(0.1, 1.0 - float(row[6])) if row[6] is not None else 1.0,
+                            })
+                        cur.close()
+                        conn.close()
+                        return recipes
+                    cur.close()
+                except Exception as pg_err:
+                    logger.debug("pgvector cosine query failed, falling back to text rank: %s", pg_err)
+
+        # 2. Database rank fallback: rank by keyword overlap across title, tags, and ingredients
+        q_term = f"%{query_text.lower().strip()}%"
+        q_raw = query_text.lower().strip()
+        words = [w for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_raw) if w not in {"food", "dish", "make", "cook", "like", "want"}]
+        first_word = f"%{words[0]}%" if words else q_term
+
+        if hasattr(conn, "run"):
+            rows = conn.run("""
+                SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                FROM recipes
+                WHERE title ILIKE :q OR ingredients_raw::text ILIKE :q OR :q_raw = ANY(tags)
+                   OR title ILIKE :first OR ingredients_raw::text ILIKE :first
+                ORDER BY (CASE WHEN title ILIKE :q THEN 0 WHEN title ILIKE :first THEN 1 ELSE 2 END), id
+                LIMIT :limit
+            """, q=q_term, q_raw=q_raw, first=first_word, limit=limit)
+            recipes = []
+            for row in rows:
+                recipes.append({
+                    "id": row[0],
+                    "title": row[1],
+                    "servings": row[2],
+                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                    "tags": row[5] or [],
+                    "score": 1.0,
+                })
+            conn.close()
+            return recipes if recipes else None
+
+        elif hasattr(conn, "cursor"):
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                FROM recipes
+                WHERE title ILIKE %s OR ingredients_raw::text ILIKE %s OR %s = ANY(tags)
+                   OR title ILIKE %s OR ingredients_raw::text ILIKE %s
+                ORDER BY (CASE WHEN title ILIKE %s THEN 0 WHEN title ILIKE %s THEN 1 ELSE 2 END), id
+                LIMIT %s
+            """, (q_term, q_term, q_raw, first_word, first_word, q_term, first_word, limit))
+            rows = cur.fetchall()
+            recipes = []
+            for row in rows:
+                recipes.append({
+                    "id": row[0],
+                    "title": row[1],
+                    "servings": row[2],
+                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
+                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
+                    "tags": row[5] or [],
+                    "score": 1.0,
+                })
+            cur.close()
+            conn.close()
+            return recipes if recipes else None
+
+    except Exception as exc:
+        logger.warning("Error running search_recipes_by_vector in Cloud SQL: %s", exc)
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+    return None
 
 
 def search_recipes_in_db(

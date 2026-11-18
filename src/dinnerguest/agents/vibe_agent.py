@@ -2,14 +2,17 @@
 
 Conducts interactive clarifying dialogue (up to 5 questions) to narrow down
 recipes by mood, flavor, and cravings, enforcing graceful fallback upon limit exhaustion.
+Powered by vector RAG similarity search and registered as an ADK sub-agent.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from dinnerguest.adk import Agent
 from dinnerguest.tools.vibe_search_tool import VibeRecipeResult, VibeSearchTool
 
 
@@ -59,74 +62,25 @@ class VibeRecommendationAgent:
         self.vibe_tool = vibe_tool or VibeSearchTool()
 
     def _extract_intent_clues(self, text: str, state: VibeDialogueState) -> None:
-        """Parses user input for flavor profiles, protein types, dish formats, and keywords."""
+        """Parses user input for general flavor profiles and style cues dynamically without static ingredient lists."""
         lower = text.lower()
-
-        # Check for protein clues
-        for p in [
-            "pork", "beef", "chicken", "fish", "shrimp", "tofu", "turkey",
-            "tuna", "salmon", "lamb", "seafood", "duck", "crab", "lobster",
-            "scallop", "scallops", "venison", "bacon", "sausage", "halibut",
-            "cod", "tilapia", "clams", "mussels", "squid", "octopus",
-        ]:
-            if p in lower:
-                state.preferences["protein"] = p
-                if "flavor_profile" not in state.preferences:
-                    state.preferences["flavor_profile"] = "savory"
-
-        # Check for specific ingredient clues
-        if "potato" in lower or "potatoes" in lower:
-            state.preferences["ingredient"] = "potato"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "carrot" in lower or "carrots" in lower:
-            state.preferences["ingredient"] = "carrot"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "apple" in lower or "apples" in lower:
-            state.preferences["ingredient"] = "apple"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "sweet"
-        elif "stuffing" in lower:
-            state.preferences["ingredient"] = "stuffing"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-
-        # Check for format clues
-        if "noodle" in lower or "noodles" in lower or "pasta" in lower or "ramen" in lower:
-            state.preferences["format"] = "noodle"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "taco" in lower or "tacos" in lower or "tortilla" in lower:
-            state.preferences["format"] = "taco"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "soup" in lower:
-            state.preferences["format"] = "soup"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "skillet" in lower or "stew" in lower:
-            state.preferences["format"] = "skillet"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "savory"
-        elif "cookie" in lower or "cookies" in lower:
-            state.preferences["format"] = "cookies"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "sweet"
-        elif "crisp" in lower or "crumble" in lower or "pie" in lower or "dessert" in lower or "cake" in lower:
-            state.preferences["format"] = "crisp"
-            if "flavor_profile" not in state.preferences:
-                state.preferences["flavor_profile"] = "sweet"
+        words = set(re.findall(r"\b\w+\b", lower))
 
         # Check for flavor profile clues
-        if "savory" in lower:
+        if "savory" in words or "umami" in words:
             state.preferences["flavor_profile"] = "savory"
-        elif "sweet" in lower:
+        elif "sweet" in words or "dessert" in words:
             state.preferences["flavor_profile"] = "sweet"
-        elif "spicy" in lower or "hot" in lower:
+        elif "spicy" in words or "hot" in words:
             state.preferences["vibe"] = "spicy"
-        elif "cozy" in lower or "cold" in lower or "comfort" in lower or "winter" in lower or "chilly" in lower:
+        elif any(w in words for w in ["cozy", "cold", "comfort", "winter", "chilly"]):
             state.preferences["vibe"] = "cozy"
+
+        # Check for format clues
+        for fmt in ["noodle", "noodles", "taco", "tacos", "soup", "skillet", "stew", "cookie", "cookies", "crisp", "crumble", "salad", "roast", "pasta"]:
+            if fmt in words:
+                state.preferences["format"] = fmt
+                break
 
     def handle_message(
         self,
@@ -138,12 +92,12 @@ class VibeRecommendationAgent:
             state = VibeDialogueState(initial_query=user_message)
         state.conversation_history.append(user_message)
 
+        lower = user_message.lower()
         self._extract_intent_clues(user_message, state)
 
-        # 1. Enforce hard 5-question limit
+        # 1. Enforce hard 5-question limit guardrail
         if state.clarifying_turn_count >= MAX_CLARIFYING_QUESTIONS:
-            # Attempt a final fallback search with what we have
-            combined_query = f"{state.initial_query} {' '.join(state.preferences.values())}"
+            combined_query = " ".join(state.conversation_history)
             candidates = self.vibe_tool.search_by_vibe(combined_query, filters=state.preferences, limit=1)
 
             if candidates:
@@ -167,12 +121,10 @@ class VibeRecommendationAgent:
         # 2. Specific branching: "Spicy Pork" scenario
         # "Would you prefer a spicy taco recipe or a noodle dish?"
         spicy_q = "Would you prefer a spicy taco recipe or a noodle dish?"
-        if (
-            state.preferences.get("vibe") == "spicy"
-            and state.preferences.get("protein") == "pork"
-            and "format" not in state.preferences
-            and spicy_q not in state.asked_questions
-        ):
+        has_spicy = "spicy" in lower or state.preferences.get("vibe") == "spicy"
+        has_pork = "pork" in lower
+        has_format = any(w in lower for w in ["taco", "tacos", "noodle", "noodles", "ramen", "pasta"]) or "format" in state.preferences
+        if has_spicy and has_pork and not has_format and spicy_q not in state.asked_questions:
             state.clarifying_turn_count += 1
             state.asked_questions.append(spicy_q)
             return VibeAgentResponse(
@@ -184,13 +136,10 @@ class VibeRecommendationAgent:
         # 3. Specific branching: "Cozy / Cold weather" scenario
         # "Would you like something savory or sweet?"
         cozy_q = "What a great idea! For something cozy, would you prefer something savory or sweet?"
-        if (
-            state.preferences.get("vibe") == "cozy"
-            and "flavor_profile" not in state.preferences
-            and "protein" not in state.preferences
-            and state.preferences.get("format") not in ["soup", "skillet", "noodle", "taco"]
-            and cozy_q not in state.asked_questions
-        ):
+        has_cozy = "cozy" in lower or state.preferences.get("vibe") == "cozy"
+        has_flv = "flavor_profile" in state.preferences or any(w in lower for w in ["savory", "sweet"])
+        has_specific_dish = any(w in lower for w in ["soup", "skillet", "noodle", "stew", "crisp", "cookie", "cake", "pie"])
+        if has_cozy and not has_flv and not has_specific_dish and cozy_q not in state.asked_questions:
             state.clarifying_turn_count += 1
             state.asked_questions.append(cozy_q)
             return VibeAgentResponse(
@@ -201,11 +150,9 @@ class VibeRecommendationAgent:
 
         # 4. Specific branching: "Sweet / Dessert" scenario
         sweet_q = "Would you prefer freshly baked cookies or a warm fruit crisp?"
-        if (
-            state.preferences.get("flavor_profile") == "sweet"
-            and "format" not in state.preferences
-            and sweet_q not in state.asked_questions
-        ):
+        has_sweet = state.preferences.get("flavor_profile") == "sweet" or "sweet" in lower or "dessert" in lower
+        has_sweet_fmt = any(w in lower for w in ["cookie", "cookies", "crisp", "crumble", "pie", "cake"]) or "format" in state.preferences
+        if has_sweet and not has_sweet_fmt and sweet_q not in state.asked_questions:
             state.clarifying_turn_count += 1
             state.asked_questions.append(sweet_q)
             return VibeAgentResponse(
@@ -214,56 +161,29 @@ class VibeRecommendationAgent:
                 state=state,
             )
 
-        # 5. Search for a matching recipe based on collected preferences
-        combined_query = f"{state.initial_query} {' '.join(state.preferences.values())}"
+        # 5. Search for matching recipe based on dialogue context via vector / token search
+        combined_query = " ".join(state.conversation_history)
         candidates = self.vibe_tool.search_by_vibe(combined_query, filters=state.preferences, limit=3)
-        if not candidates and len(state.preferences) > 1:
-            relaxed_filters = {k: v for k, v in state.preferences.items() if k != "format"}
-            candidates = self.vibe_tool.search_by_vibe(combined_query, filters=relaxed_filters, limit=3)
-        if not candidates:
-            # If the user specifically wanted a protein or ingredient, NEVER relax it away to an unrelated dish!
-            has_explicit_ing = "protein" in state.preferences or "ingredient" in state.preferences
-            if not has_explicit_ing:
-                candidates = self.vibe_tool.search_by_vibe(combined_query, limit=3)
 
         if candidates:
             top_recipe = candidates[0]
             state.status = "RECOMMENDED"
             return self._build_recommendation_reply(top_recipe, state)
 
-        # If user explicitly asked for an ingredient/protein not found in catalog or Cloud SQL DB:
-        if "protein" in state.preferences or "ingredient" in state.preferences:
-            target = state.preferences.get("protein") or state.preferences.get("ingredient")
-            state.status = "EXHAUSTED_FALLBACK"
-            msg = (
-                f"I searched our culinary database for **{target}**, but I couldn't find a matching recipe "
-                f"featuring it. Would you like to try another protein or ingredient (such as chicken, beef, seafood, or vegetarian), "
-                f"or explore a different flavor profile?"
-            )
-            return VibeAgentResponse(
-                reply_text=msg,
-                is_clarifying_question=False,
-                state=state,
-                recommended_recipes=[],
-            )
-
-        # 6. If no matches yet and below limit, ask an open clarifying question
+        # 6. If no matches yet and below limit, ask a clarifying question
         if state.clarifying_turn_count < MAX_CLARIFYING_QUESTIONS:
             state.clarifying_turn_count += 1
-            if "protein" not in state.preferences:
+            clarifying_prompt = "Could you tell me a little more about what ingredients, cuisine, or flavors you'd love to include?"
+            if state.clarifying_turn_count == 1:
                 clarifying_prompt = (
-                    "To help narrow down the perfect dish, do you have a preferred protein (like chicken, beef, pork, or vegetarian)?"
+                    "To help narrow down the perfect dish, do you have a preferred protein (like chicken, beef, seafood, or vegetarian)?"
                 )
-            elif "format" not in state.preferences:
+            elif state.clarifying_turn_count == 2:
                 clarifying_prompt = (
                     "Do you have a preferred style in mind, such as a hearty soup, pasta, or a quick skillet dish?"
                 )
-            else:
-                clarifying_prompt = (
-                    "Do you have any favorite spices, herbs, or cuisines in mind for this meal?"
-                )
             if clarifying_prompt in state.asked_questions:
-                clarifying_prompt = "Could you tell me a little more about what ingredients you'd love to include?"
+                clarifying_prompt = "Do you have any favorite spices, herbs, or cuisines in mind for this meal?"
             state.asked_questions.append(clarifying_prompt)
             return VibeAgentResponse(
                 reply_text=clarifying_prompt,
@@ -315,3 +235,45 @@ class VibeRecommendationAgent:
             state=state,
             recommended_recipes=[recipe],
         )
+
+
+# ADK Agent Definition
+VIBE_AGENT_INSTRUCTION = """You are the Vibe & Mood Recommendation Sub-Agent for Dinnerguest.
+Your role is to discover and recommend delicious recipes based on mood, vibe, cravings, season, or weather.
+
+Guidelines:
+1. When a user asks for a recommendation based on mood, vibe, or vague cravings (e.g., "I want something cozy", "I need comfort food"):
+   - Guide them with friendly, clarifying questions (up to 5 questions maximum).
+   - For spicy cravings, ask if they prefer noodles or tacos.
+   - For cozy/comfort cravings, ask if they want savory or sweet.
+2. When the user specifies particular tastes, flavors, ingredients, or dish formats (e.g., "spicy tuna dish", "chicken soup", "sweet fruit crisp"):
+   - Call `search_recipes_by_vibe` with their criteria to retrieve recipes from the vector database.
+3. For every recommended recipe, present the recipe details clearly along with the allergen notice.
+4. If unable to identify a specific recommendation within 5 turns, apologize politely and ask the user to provide more details.
+"""
+
+
+def search_recipes_by_vibe_adk(
+    query: str,
+    format: Optional[str] = None,
+    flavor_profile: Optional[str] = None,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Tool function for the Vibe Agent to search recipes by mood, vibe, or cravings."""
+    tool = VibeSearchTool()
+    filters = {}
+    if format:
+        filters["format"] = format
+    if flavor_profile:
+        filters["flavor_profile"] = flavor_profile
+    results = tool.search_by_vibe(query, filters=filters, limit=limit)
+    return [r.to_dict() for r in results]
+
+
+vibe_agent = Agent(
+    name="VibeAgent",
+    model=os.getenv("GEN_MODEL", "gemini-2.5-flash"),
+    description="Specialized sub-agent for discovering recipes by mood, vibe, season, cravings, and flavor profiles using vector RAG.",
+    instruction=VIBE_AGENT_INSTRUCTION,
+    tools=[search_recipes_by_vibe_adk],
+)
