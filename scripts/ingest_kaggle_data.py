@@ -1,8 +1,8 @@
 """Data ingestion script for Kaggle datasets.
 
-Designed to run in Cloud Shell or a Compute Engine / Batch VM to process raw
-Kaggle recipe and allergen CSV/JSON files, normalize them into a canonical schema,
-and export to SQLite, Parquet, or Google Cloud Storage.
+Processes raw Kaggle recipe and allergen CSV/JSON files, normalizes them into
+the Dinnerguest canonical schema, and streams them into Google Cloud SQL PostgreSQL
+(with pgvector dense embeddings for RAG) or local SQLite for testing.
 """
 
 from __future__ import annotations
@@ -10,11 +10,19 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
+
+# Ensure dinnerguest source package is importable
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("ingest_kaggle_data")
 
 
 def normalize_recipe_row(
@@ -52,29 +60,10 @@ def normalize_recipe_row(
     }
 
 
-def init_sqlite_db(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recipes (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            servings INTEGER NOT NULL,
-            ingredients_json TEXT NOT NULL,
-            instructions_json TEXT NOT NULL,
-            tags_json TEXT
-        )
-        """
-    )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title)")
-    conn.commit()
-    return conn
-
-
 def stream_recipes_from_csv(file_path: Path, limit: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
+    """Streams and normalizes recipe rows from a CSV file."""
     if not file_path.exists():
-        print(f"File not found: {file_path}", file=sys.stderr)
+        logger.warning("File not found: %s", file_path)
         return
 
     count = 0
@@ -82,7 +71,7 @@ def stream_recipes_from_csv(file_path: Path, limit: Optional[int] = None) -> Gen
         reader = csv.DictReader(f)
         for row in reader:
             title = row.get("title") or row.get("name") or row.get("recipe_name") or "Untitled Recipe"
-            rec_id = row.get("id") or str(count + 1)
+            rec_id = row.get("id") or f"kaggle_{count + 1}"
             raw_ing = row.get("ingredients") or "[]"
             raw_inst = row.get("directions") or row.get("instructions") or row.get("steps") or "[]"
             servings = row.get("servings") or 4
@@ -107,70 +96,532 @@ def stream_recipes_from_csv(file_path: Path, limit: Optional[int] = None) -> Gen
                 break
 
 
+def init_sqlite_db(db_path: Path) -> sqlite3.Connection:
+    """Initializes local SQLite database for offline testing."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recipes (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            servings INTEGER NOT NULL,
+            ingredients_json TEXT NOT NULL,
+            instructions_json TEXT NOT NULL,
+            tags_json TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title)")
+    conn.commit()
+    return conn
+
+
+def init_postgres_db(conn: Any) -> None:
+    """Initializes Cloud SQL PostgreSQL schema with pgvector extension and indexes."""
+    if hasattr(conn, "run"):
+        # pg8000 connection
+        try:
+            conn.run("CREATE EXTENSION IF NOT EXISTS vector;")
+        except Exception as exc:
+            logger.warning("Could not create vector extension (may already exist or lack superuser): %s", exc)
+
+        conn.run(
+            """
+            CREATE TABLE IF NOT EXISTS recipes (
+                id VARCHAR(64) PRIMARY KEY,
+                title TEXT NOT NULL,
+                servings INTEGER NOT NULL DEFAULT 4,
+                ingredients_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                instructions_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                tags TEXT[] NOT NULL DEFAULT '{}',
+                embedding vector(768),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        try:
+            conn.run("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS embedding vector(768);")
+        except Exception:
+            pass
+
+        conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        try:
+            conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
+        except Exception:
+            pass
+    elif hasattr(conn, "cursor"):
+        # psycopg2 connection
+        cur = conn.cursor()
+        try:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        except Exception as exc:
+            logger.warning("Could not create vector extension: %s", exc)
+            conn.rollback()
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS recipes (
+                id VARCHAR(64) PRIMARY KEY,
+                title TEXT NOT NULL,
+                servings INTEGER NOT NULL DEFAULT 4,
+                ingredients_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                instructions_raw JSONB NOT NULL DEFAULT '[]'::jsonb,
+                tags TEXT[] NOT NULL DEFAULT '{}',
+                embedding vector(768),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        try:
+            cur.execute("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS embedding vector(768);")
+        except Exception:
+            conn.rollback()
+
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);")
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
+        except Exception:
+            conn.rollback()
+
+        conn.commit()
+        cur.close()
+
+
+def insert_batch_postgres(
+    conn: Any,
+    batch: List[Dict[str, Any]],
+    generate_embeddings: bool = False,
+    embedding_func: Optional[Any] = None,
+) -> int:
+    """Inserts a batch of recipes into Cloud SQL PostgreSQL."""
+    if not batch:
+        return 0
+
+    inserted_count = 0
+
+    if hasattr(conn, "run"):
+        # pg8000 native
+        conn.run("BEGIN")
+        try:
+            for r in batch:
+                vec_str = None
+                if generate_embeddings and embedding_func:
+                    vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
+                    vec = embedding_func(vibe_text)
+                    if vec:
+                        vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
+
+                if vec_str:
+                    conn.run(
+                        """
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags, embedding)
+                        VALUES (:id, :title, :servings, :ing::jsonb, :inst::jsonb, :tags, :vec::vector)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags,
+                            embedding = EXCLUDED.embedding
+                        """,
+                        id=r["id"],
+                        title=r["title"],
+                        servings=r.get("servings", 4),
+                        ing=json.dumps(r.get("ingredients", [])),
+                        inst=json.dumps(r.get("instructions", [])),
+                        tags=r.get("tags", []),
+                        vec=vec_str,
+                    )
+                else:
+                    conn.run(
+                        """
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
+                        VALUES (:id, :title, :servings, :ing::jsonb, :inst::jsonb, :tags)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags
+                        """,
+                        id=r["id"],
+                        title=r["title"],
+                        servings=r.get("servings", 4),
+                        ing=json.dumps(r.get("ingredients", [])),
+                        inst=json.dumps(r.get("instructions", [])),
+                        tags=r.get("tags", []),
+                    )
+                inserted_count += 1
+            conn.run("COMMIT")
+        except Exception as exc:
+            conn.run("ROLLBACK")
+            logger.error("Error inserting batch into PostgreSQL: %s", exc)
+            raise
+
+    elif hasattr(conn, "cursor"):
+        # psycopg2
+        cur = conn.cursor()
+        try:
+            for r in batch:
+                vec_str = None
+                if generate_embeddings and embedding_func:
+                    vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
+                    vec = embedding_func(vibe_text)
+                    if vec:
+                        vec_str = "[" + ",".join(str(round(v, 6)) for v in vec) + "]"
+
+                if vec_str:
+                    cur.execute(
+                        """
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags, embedding)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s::vector)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags,
+                            embedding = EXCLUDED.embedding
+                        """,
+                        (
+                            r["id"],
+                            r["title"],
+                            r.get("servings", 4),
+                            json.dumps(r.get("ingredients", [])),
+                            json.dumps(r.get("instructions", [])),
+                            r.get("tags", []),
+                            vec_str,
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO recipes (id, title, servings, ingredients_raw, instructions_raw, tags)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            servings = EXCLUDED.servings,
+                            ingredients_raw = EXCLUDED.ingredients_raw,
+                            instructions_raw = EXCLUDED.instructions_raw,
+                            tags = EXCLUDED.tags
+                        """,
+                        (
+                            r["id"],
+                            r["title"],
+                            r.get("servings", 4),
+                            json.dumps(r.get("ingredients", [])),
+                            json.dumps(r.get("instructions", [])),
+                            r.get("tags", []),
+                        ),
+                    )
+                inserted_count += 1
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            logger.error("Error inserting batch into PostgreSQL: %s", exc)
+            raise
+        finally:
+            cur.close()
+
+    return inserted_count
+
+
+def connect_postgres(args: argparse.Namespace) -> Any:
+    """Establishes connection to Cloud SQL PostgreSQL database."""
+    # Set explicit environment variables if CLI args provided
+    if args.connection_name:
+        os.environ["CLOUD_SQL_CONNECTION_NAME"] = args.connection_name
+    if args.host:
+        os.environ["DB_HOST"] = args.host
+    if args.port:
+        os.environ["DB_PORT"] = str(args.port)
+    if args.db:
+        os.environ["CLOUD_SQL_DB"] = args.db
+    if args.user:
+        os.environ["CLOUD_SQL_USER"] = args.user
+    if args.password:
+        os.environ["CLOUD_SQL_PASSWORD"] = args.password
+
+    try:
+        from dinnerguest.database import get_db_connection
+        conn = get_db_connection()
+        if conn is not None:
+            return conn
+    except Exception as exc:
+        logger.debug("dinnerguest.database get_db_connection failed: %s", exc)
+
+    # Standalone connection attempt
+    db_name = os.getenv("CLOUD_SQL_DB", "dinnerguest")
+    db_user = os.getenv("CLOUD_SQL_USER", "dinnerguest_app")
+    db_password = os.getenv("CLOUD_SQL_PASSWORD", "DinnerGuest2026!Secure")
+    conn_name = os.getenv("CLOUD_SQL_CONNECTION_NAME")
+    db_host = os.getenv("DB_HOST")
+    db_port = int(os.getenv("DB_PORT", "5432"))
+
+    try:
+        import pg8000.native
+        if conn_name:
+            base_dir = f"/cloudsql/{conn_name}"
+            socket_file = f"{base_dir}/.s.PGSQL.5432"
+            unix_sock = socket_file if os.path.exists(socket_file) else base_dir
+            return pg8000.native.Connection(
+                user=db_user,
+                password=db_password,
+                database=db_name,
+                unix_sock=unix_sock,
+            )
+        elif db_host:
+            return pg8000.native.Connection(
+                user=db_user,
+                password=db_password,
+                database=db_name,
+                host=db_host,
+                port=db_port,
+            )
+    except ImportError:
+        pass
+
+    try:
+        import psycopg2
+        if conn_name and os.path.exists(f"/cloudsql/{conn_name}"):
+            return psycopg2.connect(
+                dbname=db_name,
+                user=db_user,
+                password=db_password,
+                host=f"/cloudsql/{conn_name}",
+            )
+        elif db_host:
+            return psycopg2.connect(
+                dbname=db_name,
+                user=db_user,
+                password=db_password,
+                host=db_host,
+                port=db_port,
+            )
+    except ImportError:
+        pass
+
+    return None
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest Kaggle recipe datasets into Dinnerguest")
-    parser.add_argument("--raw-dir", type=Path, default=Path.home() / "dinnerguest_raw_data", help="Raw data directory")
-    parser.add_argument("--output-sqlite", type=Path, default=Path("data/processed/recipes.sqlite"), help="Target SQLite DB")
-    parser.add_argument("--output-sample-json", type=Path, default=None, help="Export a small sample JSON for dev testing")
-    parser.add_argument("--sample-size", type=int, default=50, help="Number of sample recipes to export")
-    parser.add_argument("--limit", type=int, default=None, help="Max recipes to ingest")
-    parser.add_argument("--gcs-bucket", type=str, default=None, help="Google Cloud Storage bucket name to stage data")
+    parser = argparse.ArgumentParser(
+        description="Ingest Kaggle recipe datasets into Cloud SQL PostgreSQL or local SQLite for Dinnerguest."
+    )
+    parser.add_argument(
+        "--target",
+        choices=["postgres", "sqlite"],
+        default="postgres",
+        help="Target database: 'postgres' for Cloud SQL (default) or 'sqlite' for local offline testing.",
+    )
+    parser.add_argument(
+        "--raw-dir",
+        type=Path,
+        default=Path.home() / "dinnerguest_raw_data",
+        help="Directory where Kaggle CSV files are stored.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum total recipes to ingest across all CSV files.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=500,
+        help="Batch size for database insertions (default: 500).",
+    )
+    parser.add_argument(
+        "--embed",
+        action="store_true",
+        help="Generate Vertex AI text-embedding-004 dense vector embeddings for RAG during ingestion.",
+    )
+    parser.add_argument(
+        "--embed-limit",
+        type=int,
+        default=1000,
+        help="Maximum number of recipes to generate vector embeddings for (default: 1000). Set 0 for all.",
+    )
+    parser.add_argument(
+        "--output-sqlite",
+        type=Path,
+        default=Path("data/processed/recipes.sqlite"),
+        help="Target SQLite DB path when using --target sqlite.",
+    )
+    parser.add_argument(
+        "--output-sample-json",
+        type=Path,
+        default=None,
+        help="Export a small sample JSON for dev testing.",
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=50,
+        help="Number of sample recipes to export to JSON.",
+    )
+    parser.add_argument(
+        "--gcs-bucket",
+        type=str,
+        default=None,
+        help="Google Cloud Storage bucket name to stage data.",
+    )
+
+    # Cloud SQL Connection overrides
+    parser.add_argument("--connection-name", type=str, default=None, help="Cloud SQL Instance Connection Name")
+    parser.add_argument("--host", type=str, default=None, help="Cloud SQL host / IP / Auth Proxy host")
+    parser.add_argument("--port", type=int, default=None, help="Cloud SQL port (default 5432)")
+    parser.add_argument("--db", type=str, default=None, help="Cloud SQL database name")
+    parser.add_argument("--user", type=str, default=None, help="Cloud SQL database user")
+    parser.add_argument("--password", type=str, default=None, help="Cloud SQL database password")
 
     args = parser.parse_args()
 
-    args.output_sqlite.parent.mkdir(parents=True, exist_ok=True)
-    conn = init_sqlite_db(args.output_sqlite)
-    cur = conn.cursor()
+    # Discover CSV files
+    csv_candidates = list(args.raw_dir.glob("**/*.csv"))
+    if not csv_candidates:
+        logger.error(
+            "No CSV files found in '%s'. Please run scripts/download_kaggle_data.sh first.",
+            args.raw_dir,
+        )
+        sys.exit(1)
+
+    logger.info("Found %d CSV file(s) in %s.", len(csv_candidates), args.raw_dir)
+
+    # Embedding function setup if requested
+    embedding_func = None
+    if args.embed:
+        try:
+            from dinnerguest.database import generate_embedding
+            embedding_func = generate_embedding
+            logger.info("Vertex AI vector embedding generation enabled (text-embedding-004).")
+        except Exception as exc:
+            logger.warning("Could not load embedding generator: %s. Continuing without embeddings.", exc)
 
     sample_recipes: List[Dict[str, Any]] = []
     total_inserted = 0
+    total_embedded = 0
 
-    csv_candidates = list(args.raw_dir.glob("**/*.csv"))
-    if not csv_candidates:
-        print(f"No CSV files found in {args.raw_dir}. Please run scripts/download_kaggle_data.sh first.")
-        return
-
-    print(f"Found {len(csv_candidates)} CSV files. Ingesting...")
-    for csv_file in csv_candidates:
-        print(f"Processing {csv_file.name}...")
-        for recipe in stream_recipes_from_csv(csv_file, limit=args.limit):
-            cur.execute(
-                """
-                INSERT OR REPLACE INTO recipes (id, title, servings, ingredients_json, instructions_json, tags_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    recipe["id"],
-                    recipe["title"],
-                    recipe["servings"],
-                    json.dumps(recipe["ingredients"]),
-                    json.dumps(recipe["instructions"]),
-                    json.dumps(recipe["tags"]),
-                ),
+    if args.target == "postgres":
+        logger.info("Connecting to Cloud SQL PostgreSQL database...")
+        pg_conn = connect_postgres(args)
+        if pg_conn is None:
+            logger.error(
+                "Failed to connect to Cloud SQL PostgreSQL.\n"
+                "Ensure either pg8000 or psycopg2 is installed (pip install pg8000) and Cloud SQL environment variables are set:\n"
+                "  CLOUD_SQL_CONNECTION_NAME, CLOUD_SQL_DB, CLOUD_SQL_USER, CLOUD_SQL_PASSWORD (or DB_HOST)"
             )
-            total_inserted += 1
+            sys.exit(1)
 
-            if len(sample_recipes) < args.sample_size:
-                sample_recipes.append(recipe)
+        logger.info("Initializing PostgreSQL schema and pgvector extension...")
+        init_postgres_db(pg_conn)
 
-            if total_inserted % 10000 == 0:
-                conn.commit()
-                print(f"  Inserted {total_inserted} recipes...")
+        batch: List[Dict[str, Any]] = []
+        for csv_file in csv_candidates:
+            logger.info("Streaming recipes from %s...", csv_file.name)
+            for recipe in stream_recipes_from_csv(csv_file, limit=args.limit):
+                batch.append(recipe)
+                if len(sample_recipes) < args.sample_size:
+                    sample_recipes.append(recipe)
 
-    conn.commit()
-    conn.close()
-    print(f"Successfully indexed {total_inserted} recipes into {args.output_sqlite}")
+                if len(batch) >= args.batch_size:
+                    should_embed = args.embed and (args.embed_limit == 0 or total_embedded < args.embed_limit)
+                    count = insert_batch_postgres(
+                        pg_conn,
+                        batch,
+                        generate_embeddings=should_embed,
+                        embedding_func=embedding_func,
+                    )
+                    total_inserted += count
+                    if should_embed:
+                        total_embedded += count
+                    logger.info("  Inserted %d recipes into Cloud SQL (Total: %d)...", count, total_inserted)
+                    batch = []
 
+                if args.limit and total_inserted >= args.limit:
+                    break
+            if args.limit and total_inserted >= args.limit:
+                break
+
+        # Flush remaining batch
+        if batch:
+            should_embed = args.embed and (args.embed_limit == 0 or total_embedded < args.embed_limit)
+            count = insert_batch_postgres(
+                pg_conn,
+                batch,
+                generate_embeddings=should_embed,
+                embedding_func=embedding_func,
+            )
+            total_inserted += count
+            if should_embed:
+                total_embedded += count
+
+        try:
+            if hasattr(pg_conn, "close"):
+                pg_conn.close()
+        except Exception:
+            pass
+
+        logger.info("Successfully ingested %d recipes into Cloud SQL PostgreSQL!", total_inserted)
+        if total_embedded > 0:
+            logger.info("Generated dense vector embeddings for %d recipes.", total_embedded)
+
+    elif args.target == "sqlite":
+        logger.info("Ingesting into SQLite database at %s...", args.output_sqlite)
+        args.output_sqlite.parent.mkdir(parents=True, exist_ok=True)
+        sqlite_conn = init_sqlite_db(args.output_sqlite)
+        cur = sqlite_conn.cursor()
+
+        for csv_file in csv_candidates:
+            logger.info("Streaming recipes from %s...", csv_file.name)
+            for recipe in stream_recipes_from_csv(csv_file, limit=args.limit):
+                cur.execute(
+                    """
+                    INSERT OR REPLACE INTO recipes (id, title, servings, ingredients_json, instructions_json, tags_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        recipe["id"],
+                        recipe["title"],
+                        recipe["servings"],
+                        json.dumps(recipe["ingredients"]),
+                        json.dumps(recipe["instructions"]),
+                        json.dumps(recipe["tags"]),
+                    ),
+                )
+                total_inserted += 1
+                if len(sample_recipes) < args.sample_size:
+                    sample_recipes.append(recipe)
+
+                if total_inserted % args.batch_size == 0:
+                    sqlite_conn.commit()
+                    logger.info("  Inserted %d recipes into SQLite...", total_inserted)
+
+                if args.limit and total_inserted >= args.limit:
+                    break
+            if args.limit and total_inserted >= args.limit:
+                break
+
+        sqlite_conn.commit()
+        sqlite_conn.close()
+        logger.info("Successfully indexed %d recipes into %s", total_inserted, args.output_sqlite)
+
+    # Optional export of sample JSON
     if args.output_sample_json and sample_recipes:
         args.output_sample_json.parent.mkdir(parents=True, exist_ok=True)
         with open(args.output_sample_json, "w", encoding="utf-8") as f:
             json.dump(sample_recipes, f, indent=2)
-        print(f"Saved {len(sample_recipes)} sample recipes to {args.output_sample_json}")
+        logger.info("Saved %d sample recipes to %s", len(sample_recipes), args.output_sample_json)
 
+    # Optional GCS stage
     if args.gcs_bucket:
-        print(f"Uploading {args.output_sqlite} to gs://{args.gcs_bucket}/...")
-        os.system(f"gcloud storage cp '{args.output_sqlite}' 'gs://{args.gcs_bucket}/recipes.sqlite'")
-        print("GCS upload complete.")
+        if args.target == "sqlite" and args.output_sqlite.exists():
+            logger.info("Uploading %s to gs://%s/...", args.output_sqlite, args.gcs_bucket)
+            os.system(f"gcloud storage cp '{args.output_sqlite}' 'gs://{args.gcs_bucket}/recipes.sqlite'")
+        elif args.output_sample_json and args.output_sample_json.exists():
+            os.system(f"gcloud storage cp '{args.output_sample_json}' 'gs://{args.gcs_bucket}/recipes_sample.json'")
 
 
 if __name__ == "__main__":

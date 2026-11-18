@@ -26,7 +26,13 @@ DB_PORT = int(os.getenv("DB_PORT", "5432"))
 
 def is_cloud_sql_configured() -> bool:
     """Returns True if Cloud SQL connection parameters are defined."""
-    return bool(CLOUD_SQL_CONNECTION_NAME or DB_HOST)
+    return bool(
+        os.getenv("CLOUD_SQL_CONNECTION_NAME")
+        or os.getenv("DB_HOST")
+        or os.getenv("CLOUD_SQL_INSTANCE")
+        or CLOUD_SQL_CONNECTION_NAME
+        or DB_HOST
+    )
 
 
 def get_db_connection() -> Any:
@@ -38,28 +44,35 @@ def get_db_connection() -> Any:
     if not is_cloud_sql_configured():
         return None
 
+    conn_name = os.getenv("CLOUD_SQL_CONNECTION_NAME", CLOUD_SQL_CONNECTION_NAME)
+    db_name = os.getenv("CLOUD_SQL_DB", CLOUD_SQL_DB)
+    db_user = os.getenv("CLOUD_SQL_USER", CLOUD_SQL_USER)
+    db_password = os.getenv("CLOUD_SQL_PASSWORD", CLOUD_SQL_PASSWORD)
+    db_host = os.getenv("DB_HOST", DB_HOST)
+    db_port = int(os.getenv("DB_PORT", str(DB_PORT)))
+
     # 1. Attempt connecting via pg8000
     try:
         import pg8000.native
 
-        if CLOUD_SQL_CONNECTION_NAME:
-            base_dir = f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}"
+        if conn_name:
+            base_dir = f"/cloudsql/{conn_name}"
             socket_file = f"{base_dir}/.s.PGSQL.5432"
             unix_sock = socket_file if os.path.exists(socket_file) else base_dir
             if os.path.exists(base_dir):
                 return pg8000.native.Connection(
-                    user=CLOUD_SQL_USER,
-                    password=CLOUD_SQL_PASSWORD,
-                    database=CLOUD_SQL_DB,
+                    user=db_user,
+                    password=db_password,
+                    database=db_name,
                     unix_sock=unix_sock,
                 )
-        elif DB_HOST:
+        elif db_host:
             return pg8000.native.Connection(
-                user=CLOUD_SQL_USER,
-                password=CLOUD_SQL_PASSWORD,
-                database=CLOUD_SQL_DB,
-                host=DB_HOST,
-                port=DB_PORT,
+                user=db_user,
+                password=db_password,
+                database=db_name,
+                host=db_host,
+                port=db_port,
             )
     except ImportError:
         pass
@@ -70,20 +83,20 @@ def get_db_connection() -> Any:
     try:
         import psycopg2
 
-        if CLOUD_SQL_CONNECTION_NAME and os.path.exists(f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}"):
+        if conn_name and os.path.exists(f"/cloudsql/{conn_name}"):
             return psycopg2.connect(
-                dbname=CLOUD_SQL_DB,
-                user=CLOUD_SQL_USER,
-                password=CLOUD_SQL_PASSWORD,
-                host=f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}",
+                dbname=db_name,
+                user=db_user,
+                password=db_password,
+                host=f"/cloudsql/{conn_name}",
             )
-        elif DB_HOST:
+        elif db_host:
             return psycopg2.connect(
-                dbname=CLOUD_SQL_DB,
-                user=CLOUD_SQL_USER,
-                password=CLOUD_SQL_PASSWORD,
-                host=DB_HOST,
-                port=DB_PORT,
+                dbname=db_name,
+                user=db_user,
+                password=db_password,
+                host=db_host,
+                port=db_port,
             )
     except ImportError:
         pass
