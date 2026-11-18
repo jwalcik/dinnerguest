@@ -260,6 +260,13 @@ def init_postgres_db(conn: Any, drop_existing: bool = False) -> None:
             conn.run("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
         except Exception:
             pass
+
+        # Grant table access so Cloud SQL Studio (postgres / IAM users) can view and query recipes
+        for grant_target in ("PUBLIC", "postgres"):
+            try:
+                conn.run(f"GRANT ALL PRIVILEGES ON TABLE recipes TO {grant_target};")
+            except Exception:
+                pass
     elif hasattr(conn, "cursor"):
         # psycopg2 connection
         cur = conn.cursor()
@@ -293,6 +300,13 @@ def init_postgres_db(conn: Any, drop_existing: bool = False) -> None:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_recipes_tags ON recipes USING GIN(tags);")
         except Exception:
             conn.rollback()
+
+        # Grant table access so Cloud SQL Studio (postgres / IAM users) can view and query recipes
+        for grant_target in ("PUBLIC", "postgres"):
+            try:
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE recipes TO {grant_target};")
+            except Exception:
+                conn.rollback()
 
         conn.commit()
         cur.close()
