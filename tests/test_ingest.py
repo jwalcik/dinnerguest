@@ -54,6 +54,17 @@ class TestIngestKaggleData(unittest.TestCase):
         self.assertEqual(row["ingredients"][0], "1 cup flour")
         self.assertEqual(len(row["instructions"]), 2)
 
+    def test_normalize_recipe_row_python_literal_list(self):
+        row = normalize_recipe_row(
+            recipe_id="789",
+            title="Spicy Noodles",
+            ingredients_raw="['cabbage', 'soy sauce', 'garlic']",
+            instructions_raw="['boil noodles', 'stir fry veggies', 'combine and serve']",
+            servings=2,
+        )
+        self.assertEqual(row["ingredients"], ["cabbage", "soy sauce", "garlic"])
+        self.assertEqual(row["instructions"], ["boil noodles", "stir fry veggies", "combine and serve"])
+
     def test_stream_recipes_from_csv(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             writer = csv.DictWriter(

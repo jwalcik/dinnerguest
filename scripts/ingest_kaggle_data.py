@@ -21,6 +21,13 @@ from typing import Any, Dict, Generator, List, Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from dinnerguest.database import (
+    clean_ingredient_item,
+    clean_instruction_step,
+    clean_recipe_text_list,
+    clean_recipe_title,
+)
+
 # Accommodate large text fields in Kaggle recipe CSVs without memory crashing
 try:
     csv.field_size_limit(min(sys.maxsize, 2147483647))
@@ -74,28 +81,15 @@ def normalize_recipe_row(
     tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Normalizes recipe data into Dinnerguest standard schema."""
-    if isinstance(ingredients_raw, str):
-        try:
-            ingredients = json.loads(ingredients_raw)
-        except Exception:
-            ingredients = [i.strip() for i in ingredients_raw.splitlines() if i.strip()]
-    else:
-        ingredients = ingredients_raw
-
-    if isinstance(instructions_raw, str):
-        try:
-            instructions = json.loads(instructions_raw)
-        except Exception:
-            instructions = [i.strip() for i in instructions_raw.splitlines() if i.strip()]
-    else:
-        instructions = instructions_raw
+    cleaned_ings = clean_recipe_text_list(ingredients_raw)
+    cleaned_insts = clean_recipe_text_list(instructions_raw)
 
     return {
         "id": str(recipe_id).replace("\x00", "").replace("\u0000", ""),
         "title": _clean_str(title.strip()),
         "servings": int(servings) if servings else 4,
-        "ingredients": _clean_str(ingredients),
-        "instructions": _clean_str(instructions),
+        "ingredients": _clean_str(cleaned_ings),
+        "instructions": _clean_str(cleaned_insts),
         "tags": _clean_str(tags or []),
     }
 

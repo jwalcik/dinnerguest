@@ -210,24 +210,25 @@ class VibeRecommendationAgent:
         state: VibeDialogueState,
     ) -> VibeAgentResponse:
         """Formats the final recipe recommendation with allergen notices."""
+        from dinnerguest.database import clean_ingredient_item, clean_instruction_step
         lines = [
-            f"Here is a great recipe recommendation for you:\n",
-            f"## {recipe.title}",
-            f"- **Yield**: Serves {recipe.servings}",
+            f"🍲 Here is a great recipe for **{recipe.title}**:",
+            f"- **Servings**: {recipe.servings}",
             f"- **Time**: {recipe.prep_time_minutes} min prep, {recipe.cook_time_minutes} min cook",
-            f"- **Vibe & Tags**: {', '.join(recipe.tags)}",
             "",
             "### Ingredients:",
         ]
         for ing in recipe.ingredients:
-            lines.append(f"- {ing}")
+            lines.append(f"• {clean_ingredient_item(ing)}")
 
-        lines.append("\n### Instructions:")
+        lines.append("")
+        lines.append("### Instructions:")
         for idx, step in enumerate(recipe.instructions, 1):
-            lines.append(f"{idx}. {step}")
+            lines.append(f"{idx}. {clean_instruction_step(step)}")
 
         if recipe.allergen_report:
-            lines.append(f"\n⚠️ **Allergen Notice**: {recipe.allergen_report.get_guest_warning_summary()}")
+            lines.append("")
+            lines.append(f"⚠️ **Allergen Notice**: {recipe.allergen_report.get_guest_warning_summary()}")
 
         return VibeAgentResponse(
             reply_text="\n".join(lines),

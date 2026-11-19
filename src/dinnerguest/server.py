@@ -1258,6 +1258,7 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
         else:
             events.append({"type": "thought", "text": "Searching culinary database and recipe catalog for matching instructions and allergen profile..."})
         from dinnerguest.tools.vibe_search_tool import VibeSearchTool
+        from dinnerguest.database import clean_ingredient_item, clean_instruction_step
         vibe_tool = VibeSearchTool()
         events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": user_msg}})
         results = vibe_tool.search_by_vibe(user_msg, limit=3)
@@ -1273,18 +1274,24 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 "### Ingredients:"
             ]
             for ing in best.ingredients:
-                lines.append(f"• {ing}")
+                lines.append(f"• {clean_ingredient_item(ing)}")
             lines.append("")
             lines.append("### Instructions:")
             for idx, step in enumerate(best.instructions, 1):
-                lines.append(f"{idx}. {step}")
+                lines.append(f"{idx}. {clean_instruction_step(step)}")
             if best.allergen_report:
                 lines.append("")
                 lines.append(f"⚠️ **Allergen Notice**: {best.allergen_report.get_guest_warning_summary()}")
             if len(results) > 1:
-                other_titles = [f"'{r.title}'" for r in results[1:]]
-                lines.append("")
-                lines.append(f"💡 *Other matching options: {', '.join(other_titles)}.*")
+                seen_titles = {best.title.lower()}
+                distinct_titles = []
+                for r in results[1:]:
+                    if r.title.lower() not in seen_titles:
+                        seen_titles.add(r.title.lower())
+                        distinct_titles.append(f"'{r.title}'")
+                if distinct_titles:
+                    lines.append("")
+                    lines.append(f"💡 *Other matching options: {', '.join(distinct_titles)}.*")
 
             return {
                 "reply": "\n".join(lines),

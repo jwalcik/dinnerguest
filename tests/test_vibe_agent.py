@@ -122,6 +122,56 @@ class TestVibeAgent(unittest.TestCase):
             self.assertIn("apologize", resp_final.reply_text.lower())
             self.assertIn("more details", resp_final.reply_text.lower())
 
+    def test_clean_recipe_text_list_formats(self):
+        from dinnerguest.database import clean_recipe_text_list
+        # Python repr string list
+        self.assertEqual(
+            clean_recipe_text_list("['cabbage', 'soy sauce', 'garlic']"),
+            ["cabbage", "soy sauce", "garlic"]
+        )
+        # Nested stringified list
+        self.assertEqual(
+            clean_recipe_text_list(["['cabbage', 'soy sauce']"]),
+            ["cabbage", "soy sauce"]
+        )
+        # JSON string list
+        self.assertEqual(
+            clean_recipe_text_list('["salt", "pepper"]'),
+            ["salt", "pepper"]
+        )
+
+    def test_build_recommendation_reply_formatting(self):
+        from dinnerguest.tools.vibe_search_tool import VibeRecipeResult
+        recipe = VibeRecipeResult(
+            recipe_id="test_001",
+            title="Spicy Noodles",
+            servings=2,
+            prep_time_minutes=10,
+            cook_time_minutes=15,
+            tags=["spicy", "asian"],
+            matched_vibes=["spicy"],
+            score=0.9,
+            ingredients="['cabbage', 'soy sauce', 'chili oil']",  # Raw Kaggle string
+            instructions="['boil water', 'cook noodles 5 min', 'toss with sauce']",
+        )
+        # VibeRecipeResult should auto-unpack and clean lists in __post_init__
+        self.assertEqual(recipe.ingredients, ["cabbage", "soy sauce", "chili oil"])
+        self.assertEqual(recipe.instructions, ["boil water", "cook noodles 5 min", "toss with sauce"])
+
+        state = VibeDialogueState(initial_query="spicy noodles")
+        response = self.agent._build_recommendation_reply(recipe, state)
+
+        self.assertIn("🍲 Here is a great recipe for **Spicy Noodles**:", response.reply_text)
+        self.assertIn("- **Servings**: 2", response.reply_text)
+        self.assertIn("- **Time**: 10 min prep, 15 min cook", response.reply_text)
+        self.assertIn("### Ingredients:", response.reply_text)
+        self.assertIn("• Cabbage", response.reply_text)
+        self.assertIn("• Soy sauce", response.reply_text)
+        self.assertIn("### Instructions:", response.reply_text)
+        self.assertIn("1. Boil water.", response.reply_text)
+        self.assertIn("2. Cook noodles 5 min.", response.reply_text)
+        self.assertIn("3. Toss with sauce.", response.reply_text)
+
 
 if __name__ == "__main__":
     unittest.main()

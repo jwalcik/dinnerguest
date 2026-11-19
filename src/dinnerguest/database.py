@@ -7,6 +7,7 @@ Falls back safely to local datasets when Cloud SQL is unconfigured or unreachabl
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -22,6 +23,142 @@ CLOUD_SQL_USER = os.getenv("CLOUD_SQL_USER", "dinnerguest_app")
 CLOUD_SQL_PASSWORD = os.getenv("CLOUD_SQL_PASSWORD", "DinnerGuest2026!Secure")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
+
+
+def clean_recipe_text_list(val: Any) -> List[str]:
+    """Cleans and unpacks ingredients or instructions into a clean list of individual strings.
+
+    Handles:
+    - Lists/tuples of strings
+    - JSON-encoded arrays
+    - Python string literal repr arrays (e.g. "['item 1', 'item 2']") from datasets like Kaggle food.com
+    - Singly nested stringified lists (e.g. ["['item 1', 'item 2']"])
+    - Newline- or semicolon-separated text
+    - Stripping trailing/leading brackets, quotes, and whitespace
+    """
+    if not val:
+        return []
+
+    # If it's a string, attempt JSON, AST literal_eval, or line splitting
+    if isinstance(val, str):
+        val_str = val.strip()
+        if not val_str or val_str in ("[]", "{}", "None", "null"):
+            return []
+        # 1. Try JSON decoding
+        try:
+            parsed = json.loads(val_str)
+            if parsed != val_str:
+                return clean_recipe_text_list(parsed)
+        except Exception:
+            pass
+
+        # 2. Try Python AST literal evaluation for repr strings: "['a', 'b']"
+        if (val_str.startswith("[") and val_str.endswith("]")) or (val_str.startswith("(") and val_str.endswith(")")):
+            try:
+                parsed = ast.literal_eval(val_str)
+                if isinstance(parsed, (list, tuple)):
+                    return clean_recipe_text_list(parsed)
+            except Exception:
+                pass
+
+        # 3. Split by newlines if multi-line string
+        if "\n" in val_str:
+            lines = [line.strip() for line in val_str.splitlines() if line.strip()]
+            return clean_recipe_text_list(lines)
+
+        # 4. Split by semicolons if contains multiple items separated by semicolons
+        if ";" in val_str and not val_str.startswith("&"):
+            parts = [p.strip() for p in val_str.split(";") if p.strip()]
+            return clean_recipe_text_list(parts)
+
+        # 5. Single item: strip surrounding quotes
+        cleaned = val_str.strip("'\" \t\r\n")
+        return [cleaned] if cleaned else []
+
+    # If it's a list or tuple
+    if isinstance(val, (list, tuple)):
+        items: List[str] = []
+        for x in val:
+            if isinstance(x, (list, tuple)):
+                items.extend(clean_recipe_text_list(x))
+            elif isinstance(x, str):
+                x_str = x.strip()
+                # Check if this string element itself is a stringified list like "['a', 'b']"
+                if (x_str.startswith("[") and x_str.endswith("]")) or (x_str.startswith("(") and x_str.endswith(")")):
+                    try:
+                        parsed = ast.literal_eval(x_str)
+                        if isinstance(parsed, (list, tuple)):
+                            items.extend(clean_recipe_text_list(parsed))
+                            continue
+                    except Exception:
+                        try:
+                            parsed = json.loads(x_str)
+                            if isinstance(parsed, (list, tuple)):
+                                items.extend(clean_recipe_text_list(parsed))
+                                continue
+                        except Exception:
+                            pass
+                if "\n" in x_str:
+                    items.extend(clean_recipe_text_list(x_str.splitlines()))
+                else:
+                    item = x_str.strip("'\" \t\r\n")
+                    if item:
+                        items.append(item)
+            elif x is not None:
+                items.append(str(x).strip())
+        return items
+
+    return [str(val).strip()]
+
+
+def clean_ingredient_item(item: str) -> str:
+    """Cleans an individual ingredient string, removing bullets and standardizing casing."""
+    s = str(item).strip()
+    s = re.sub(r"^(?:(?:\d+[\.\)]\s*)|(?:[\-\*•]\s*))+", "", s).strip()
+    s = s.strip("'\"")
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
+    return s
+
+
+def clean_instruction_step(step: str) -> str:
+    """Cleans an individual instruction step string, standardizing capitalization and punctuation."""
+    s = str(step).strip()
+    s = re.sub(r"^(?:(?:\d+[\.\)]\s*)|(?:[\-\*•]\s*))+", "", s).strip()
+    s = s.strip("'\"")
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
+    if s and not s.endswith((".", "!", "?", ":")):
+        s += "."
+    return s
+
+
+def clean_recipe_title(title: str) -> str:
+    """Normalizes recipe title presentation, converting all-lowercase titles to title case."""
+    t = str(title).strip()
+    if t.islower():
+        return t.title()
+    return t
+
+
+def row_to_recipe_dict(row: tuple | list, score: Optional[float] = None) -> Dict[str, Any]:
+    """Converts a database row into a canonical recipe dictionary with normalized fields."""
+    recipe: Dict[str, Any] = {
+        "id": str(row[0]),
+        "title": clean_recipe_title(row[1]),
+        "servings": int(row[2]) if row[2] else 4,
+        "ingredients": clean_recipe_text_list(row[3]),
+        "instructions": clean_recipe_text_list(row[4]),
+        "tags": row[5] or [],
+    }
+    if score is not None:
+        recipe["score"] = score
+    elif len(row) > 6 and row[6] is not None:
+        try:
+            recipe["score"] = max(0.1, 1.0 - float(row[6]))
+        except (ValueError, TypeError):
+            pass
+    return recipe
 
 
 def is_cloud_sql_configured() -> bool:
@@ -410,17 +547,7 @@ def search_recipes_by_vector(
                         LIMIT :limit
                     """, vec=vec_str, limit=limit)
                     if rows:
-                        recipes = []
-                        for row in rows:
-                            recipes.append({
-                                "id": row[0],
-                                "title": row[1],
-                                "servings": row[2],
-                                "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                                "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                                "tags": row[5] or [],
-                                "score": max(0.1, 1.0 - float(row[6])) if row[6] is not None else 1.0,
-                            })
+                        recipes = [row_to_recipe_dict(row) for row in rows]
                         conn.close()
                         return recipes
                 except Exception as pg_err:
@@ -439,17 +566,7 @@ def search_recipes_by_vector(
                     """, (vec_str, limit))
                     rows = cur.fetchall()
                     if rows:
-                        recipes = []
-                        for row in rows:
-                            recipes.append({
-                                "id": row[0],
-                                "title": row[1],
-                                "servings": row[2],
-                                "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                                "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                                "tags": row[5] or [],
-                                "score": max(0.1, 1.0 - float(row[6])) if row[6] is not None else 1.0,
-                            })
+                        recipes = [row_to_recipe_dict(row) for row in rows]
                         cur.close()
                         conn.close()
                         return recipes
@@ -472,17 +589,7 @@ def search_recipes_by_vector(
                 ORDER BY (CASE WHEN title ILIKE :q THEN 0 WHEN title ILIKE :first THEN 1 ELSE 2 END), id
                 LIMIT :limit
             """, q=q_term, q_raw=q_raw, first=first_word, limit=limit)
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                    "score": 1.0,
-                })
+            recipes = [row_to_recipe_dict(row, score=1.0) for row in rows]
             conn.close()
             return recipes if recipes else None
 
@@ -497,17 +604,7 @@ def search_recipes_by_vector(
                 LIMIT %s
             """, (q_term, q_term, q_raw, first_word, first_word, q_term, first_word, limit))
             rows = cur.fetchall()
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                    "score": 1.0,
-                })
+            recipes = [row_to_recipe_dict(row, score=1.0) for row in rows]
             cur.close()
             conn.close()
             return recipes if recipes else None
@@ -550,16 +647,7 @@ def search_recipes_in_db(
                 ing=ing_term,
                 l=limit,
             )
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                })
+            recipes = [row_to_recipe_dict(row) for row in rows]
             conn.close()
             return recipes
 
@@ -580,16 +668,7 @@ def search_recipes_in_db(
                 limit,
             ))
             rows = cur.fetchall()
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                })
+            recipes = [row_to_recipe_dict(row) for row in rows]
             cur.close()
             conn.close()
             return recipes
@@ -631,16 +710,7 @@ def fetch_recipes_from_db(
                     "SELECT id, title, servings, ingredients_raw, instructions_raw, tags FROM recipes LIMIT :l",
                     l=limit,
                 )
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                })
+            recipes = [row_to_recipe_dict(row) for row in rows]
             conn.close()
             return recipes if recipes else None
 
@@ -658,16 +728,7 @@ def fetch_recipes_from_db(
                     (limit,),
                 )
             rows = cur.fetchall()
-            recipes = []
-            for row in rows:
-                recipes.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "servings": row[2],
-                    "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                    "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    "tags": row[5] or [],
-                })
+            recipes = [row_to_recipe_dict(row) for row in rows]
             cur.close()
             conn.close()
             return recipes if recipes else None
@@ -756,16 +817,9 @@ def fetch_pantry_candidates_from_db(
         if hasattr(conn, "run"):
             rows = conn.run(sql_str, **params)
             for row in rows:
-                r_id = row[0]
+                r_id = str(row[0])
                 if r_id not in candidates_by_id:
-                    candidates_by_id[r_id] = {
-                        "id": r_id,
-                        "title": row[1],
-                        "servings": row[2],
-                        "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                        "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                        "tags": row[5] or [],
-                    }
+                    candidates_by_id[r_id] = row_to_recipe_dict(row)
             conn.close()
 
         elif hasattr(conn, "cursor"):
@@ -781,16 +835,9 @@ def fetch_pantry_candidates_from_db(
             cur.execute(formatted_sql, tuple(param_order))
             rows = cur.fetchall()
             for row in rows:
-                r_id = row[0]
+                r_id = str(row[0])
                 if r_id not in candidates_by_id:
-                    candidates_by_id[r_id] = {
-                        "id": r_id,
-                        "title": row[1],
-                        "servings": row[2],
-                        "ingredients": row[3] if isinstance(row[3], list) else json.loads(row[3] or "[]"),
-                        "instructions": row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                        "tags": row[5] or [],
-                    }
+                    candidates_by_id[r_id] = row_to_recipe_dict(row)
             cur.close()
             conn.close()
 

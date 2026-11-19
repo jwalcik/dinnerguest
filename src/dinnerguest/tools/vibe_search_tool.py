@@ -37,6 +37,12 @@ class VibeRecipeResult:
     instructions: List[str]
     allergen_report: Optional[AllergenReport] = None
 
+    def __post_init__(self) -> None:
+        from dinnerguest.database import clean_recipe_text_list, clean_recipe_title
+        self.title = clean_recipe_title(self.title)
+        self.ingredients = clean_recipe_text_list(self.ingredients)
+        self.instructions = clean_recipe_text_list(self.instructions)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "recipe_id": self.recipe_id,
