@@ -331,7 +331,44 @@ class EventMenuStore:
             if menu_dict.get("name", "").lower() == lower_query:
                 return EventMenu.from_dict(menu_dict)
 
+        # Check substring match on name or slug
+        for menu_dict in all_menus.values():
+            m_name = menu_dict.get("name", "").lower()
+            if m_name and (lower_query in m_name or m_name in lower_query):
+                return EventMenu.from_dict(menu_dict)
+
         return None
+
+    def rename_menu(self, old_name_or_id: str, new_name: str) -> Optional[EventMenu]:
+        """Renames an existing saved menu to a new custom label/name."""
+        menu = self.get_menu(old_name_or_id)
+        if not menu:
+            return None
+
+        clean_new = new_name.strip().strip('"').strip("'").strip("“”")
+        if not clean_new:
+            return menu
+
+        old_id = menu.event_id
+        new_id = _slugify(clean_new)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        menu.name = clean_new
+        menu.event_id = new_id
+        menu.updated_at = now_iso
+
+        all_menus = self._load_all()
+        if old_id in all_menus and old_id != new_id:
+            del all_menus[old_id]
+            if self.use_firestore and self._firestore_db is not None:
+                try:
+                    self._firestore_db.collection(self.firestore_collection).document(old_id).delete()
+                except Exception as exc:
+                    logger.warning("Error deleting old menu '%s' during rename in Firestore: %s", old_id, exc)
+
+        all_menus[new_id] = menu.to_dict()
+        self._save_all(all_menus)
+        return menu
 
     def list_menus(self) -> List[Dict[str, Any]]:
         """Lists summaries of all saved event menus."""

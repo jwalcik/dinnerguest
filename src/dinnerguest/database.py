@@ -341,7 +341,16 @@ def init_and_seed_db() -> Dict[str, Any]:
             count_rows = conn.run("SELECT COUNT(*) FROM recipes")
             curr_count = count_rows[0][0] if count_rows else 0
 
-            # Insert or update canonical recipes
+            # If Cloud SQL already has the Kaggle dataset (>= 100 rows), remove local JSON fixtures and skip seeding
+            if curr_count >= 100:
+                try:
+                    conn.run("DELETE FROM recipes WHERE id LIKE 'recipe_%'")
+                except Exception:
+                    pass
+                conn.close()
+                return {"status": "skipped", "message": "Cloud SQL already populated with Kaggle recipes", "previous_count": curr_count}
+
+            # Insert or update canonical recipes only when DB is empty/unseeded
             for r in canonical_recipes:
                 # Try generating embedding for vector RAG
                 vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."
@@ -415,6 +424,16 @@ def init_and_seed_db() -> Dict[str, Any]:
             cur.execute("SELECT COUNT(*) FROM recipes")
             row = cur.fetchone()
             curr_count = row[0] if row else 0
+
+            if curr_count >= 100:
+                try:
+                    cur.execute("DELETE FROM recipes WHERE id LIKE 'recipe_%%'")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                cur.close()
+                conn.close()
+                return {"status": "skipped", "message": "Cloud SQL already populated with Kaggle recipes", "previous_count": curr_count}
 
             for r in canonical_recipes:
                 vibe_text = f"{r['title']}. Tags: {', '.join(r.get('tags', []))}. Ingredients: {', '.join(r.get('ingredients', []))}."

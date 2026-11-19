@@ -283,6 +283,17 @@ class MenuPlanningAgent:
             auto_scale=True,
         )
 
+    def rename_event_menu(
+        self,
+        old_name_or_id: str,
+        new_name: str,
+    ) -> Optional[EventPlanSummary]:
+        """Renames an existing saved event menu to a new custom label."""
+        menu = self.menu_store.rename_menu(old_name_or_id, new_name)
+        if not menu:
+            return None
+        return self._summarize_menu(menu)
+
     def _summarize_menu(self, menu: EventMenu) -> EventPlanSummary:
         """Calculates cross-dish dietary accommodations and course coverage."""
         all_allergens = set(menu.consolidated_allergens)

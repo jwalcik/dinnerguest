@@ -327,10 +327,19 @@ class RecipeScaler:
                         )
                     )
 
-            # Format scaled output text
+            # Format scaled output text (also scale upper bound if ingredient specifies a range like "4 to 5 ...")
             formatted_qty = self.format_fraction(scaled_qty)
+            display_name = name_str
+            range_match = re.match(r"^(?P<sep>to|-)\s*(?P<high>\d+(?:\.\d+)?(?:/\d+)?)\b\s*(?P<rest>.*)$", name_str, re.IGNORECASE)
+            if range_match:
+                high_val = self.parse_quantity(range_match.group("high"))
+                if high_val is not None:
+                    scaled_high = self.format_fraction(high_val * scale_factor)
+                    sep = range_match.group("sep")
+                    rest = range_match.group("rest").strip()
+                    display_name = f"{sep} {scaled_high} {rest}".strip() if sep.lower() == "to" else f"- {scaled_high} {rest}".strip()
             unit_display = f" {unit_str}" if unit_str else ""
-            scaled_text = f"{formatted_qty}{unit_display} {name_str}".strip()
+            scaled_text = f"{formatted_qty}{unit_display} {display_name}".strip()
 
             result.scaled_ingredients.append(
                 ScaledIngredient(

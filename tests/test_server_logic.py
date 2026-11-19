@@ -225,6 +225,45 @@ class TestServerLogic(unittest.TestCase):
         self.assertEqual(r5["data"]["guest_count"], 12)
         self.assertIn("12 Guests", r5["reply"])
 
+    def test_interactive_non_holiday_event_planning_rename_and_recall(self):
+        sess = "test_sess_gamenight"
+
+        # Turn 1: Non-holiday meal planning without courses asks about courses & event label
+        r1 = _execute_agent_turn("I need to plan a dinner for 6", sess, "gn_1")
+        self.assertIn("6 guests", r1["reply"])
+        self.assertIn("Courses & Dishes", r1["reply"])
+        self.assertIn("Event Name / Label", r1["reply"])
+        self.assertEqual(r1["data"]["status"], "AWAITING_COURSES")
+
+        # Turn 2: User specifies courses
+        r2 = _execute_agent_turn(
+            "Let's do a stuffed pepper appetizer, an Italian meatballs main course, and chocolate chip cookies for dessert",
+            sess,
+            "gn_2",
+        )
+        self.assertEqual(r2["data"]["guest_count"], 6)
+        self.assertEqual(r2["data"]["dish_count"], 3)
+
+        # Turn 3: Replace meatballs with grilled chicken + dietary note
+        r3 = _execute_agent_turn(
+            "One of the folks coming doesn't eat beef. Let's replace the meatballs with some sort of grilled chicken dish.",
+            sess,
+            "gn_3",
+        )
+        vibe_calls = [e for e in r3["events"] if e.get("type") == "tool_call" and e.get("tool") == "search_recipes_by_vibe"]
+        self.assertEqual(vibe_calls[0]["args"]["query"], "grilled chicken")
+        self.assertIn("Dietary Heads-Up", r3["reply"])
+
+        # Turn 4: Rename the event to "Saturday Gamenight"
+        r4 = _execute_agent_turn('Okay, let\'s call this event "Saturday Gamenight"', sess, "gn_4")
+        self.assertEqual(r4["data"]["name"], "Saturday Gamenight")
+        self.assertIn("Saturday Gamenight", r4["reply"])
+
+        # Turn 5: Recall "Saturday Gamenight" in a fresh session
+        r5 = _execute_agent_turn("What did we plan for Saturday Gamenight?", "fresh_sess_gn", "gn_5")
+        self.assertIn("Recalled saved menu", r5["reply"])
+        self.assertEqual(r5["data"]["name"], "Saturday Gamenight")
+
 
 if __name__ == "__main__":
     unittest.main()

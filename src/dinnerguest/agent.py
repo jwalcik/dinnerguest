@@ -293,6 +293,17 @@ def update_event_menu_dish(
         Updated event plan summary, replaced/added recipe details, and updated allergen profile.
     """
     act = action.strip().lower()
+    if act == "rename":
+        new_label = (dish_query or target_dish_or_course or "").strip()
+        if not new_label:
+            return {"error": "No new name provided for rename."}
+        summary = _menu_agent.rename_event_menu(name_or_id, new_label)
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = summary.to_dict()
+        out["previous_name"] = name_or_id
+        return out
+
     if act == "scale" and new_guest_count:
         summary = _menu_agent.scale_event_menu(name_or_id, int(new_guest_count))
         if not summary:

@@ -836,46 +836,214 @@ def _format_updated_menu_reply(
     return "\n".join(lines)
 
 
+def _clean_dish_search_query(raw_q: str) -> str:
+    """Strips conversational filler ('some sort of', 'dish', 'on the menu') to produce a clean recipe search query."""
+    q = raw_q.strip().rstrip(".,?!")
+    q = re.sub(
+        r"^(?:a\s+sort\s+of\s+|a\s+kind\s+of\s+|a\s+type\s+of\s+|some\s+sort\s+of\s+|some\s+kind\s+of\s+|some\s+type\s+of\s+|some\s+|another\s+|a\s+|an\s+|the\s+)+",
+        "",
+        q,
+        flags=re.IGNORECASE,
+    ).strip()
+    q = re.sub(
+        r"\s+(?:on|in|for|to)\s+(?:the\s+|our\s+)?(?:menu|dinner|lunch|party|feast|event|plan|meal)$",
+        "",
+        q,
+        flags=re.IGNORECASE,
+    ).strip()
+    q = re.sub(
+        r"\s+(?:dish|recipe|course|option|item)$",
+        "",
+        q,
+        flags=re.IGNORECASE,
+    ).strip()
+    return q or raw_q.strip()
+
+
+def _extract_menu_rename_intent(user_msg: str) -> Optional[str]:
+    """Detects if the user is naming or renaming an event menu (e.g. 'Okay, let's call this event \"Saturday Gamenight\"')."""
+    text = user_msg.strip()
+    patterns = [
+        r"\b(?:call|name|rename|label|title)\s+(?:this|the|our|my|it)\s*(?:event|menu|dinner|party|meal|feast|plan|gathering)?\s*(?:to|as)?\s*[\"“']([^\"”']+)[\"”']",
+        r"\b(?:call|name|rename|label|title)\s+(?:this|the|our|my)\s+(?:event|menu|dinner|party|meal|feast|plan|gathering)\s+(?:to\s+|as\s+)?[\"“']?([^\"”'.?!]+)[\"”']?",
+        r"\b(?:let's|lets|please|we\s+can|we\s+should|i'll|i\s+will)\s+(?:call|name|rename|label)\s+(?:it|this)\s+(?:to\s+|as\s+)?[\"“']?([^\"”'.?!]+)[\"”']?",
+        r"\b(?:save|store)\s+(?:this|the|our|it)?\s*(?:event|menu|dinner|party|meal|plan)?\s+as\s+[\"“']?([^\"”'.?!]+)[\"”']?",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().strip('"').strip("'").strip("“”").rstrip(".,?!")
+            if candidate and len(candidate) >= 2:
+                return candidate
+    return None
+
+
+def _extract_custom_event_label(user_msg: str) -> Optional[str]:
+    """Extracts an inline custom event name from a planning prompt if provided (e.g. 'called Saturday Gamenight')."""
+    m = re.search(
+        r"\b(?:called|named|labeled|titled|for\s+our|for\s+my)\s+[\"“']?([A-Za-z0-9\s'&-]{3,40})[\"”']?",
+        user_msg.strip(),
+        re.IGNORECASE,
+    )
+    if m:
+        label = m.group(1).strip().strip('"').strip("'").strip("“”").rstrip(".,?!")
+        generic = {"dinner", "lunch", "party", "dinner party", "meal", "guests", "people", "family", "friends", "tonight", "tomorrow"}
+        if label.lower() not in generic:
+            return label
+    m_quote = re.search(r"[\"“]([^\"”]{3,40})[\"”]", user_msg.strip())
+    if m_quote:
+        return m_quote.group(1).strip()
+    return None
+
+
+def _parse_requested_courses_spec(user_msg: str) -> Optional[List[Dict[str, str]]]:
+    """Parses explicit course/dish requests from a user message during interactive menu planning.
+
+    Returns a list of dicts [{'course': 'Appetizer', 'query': '...'}, ...] if course/dish specifications are present.
+    """
+    text = user_msg.strip()
+    lower = text.lower()
+
+    # Remove any trailing "call it X" clause before parsing courses
+    text_no_rename = re.sub(
+        r"[,;.]?\s*(?:and\s+)?(?:let's\s+|please\s+)?(?:call|name|label|save)\s+(?:this|the|it)\s*(?:event|menu|dinner|party)?\s*(?:as|to)?\s*[\"“']?[^\"”'.?!]+[\"”']?$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    course_keywords = ("appetizer", "appetizers", "starter", "starters", "main", "mains", "entree", "entrees", "side", "sides", "dessert", "desserts", "soup", "salad", "course", "courses")
+    has_course_word = any(re.search(rf"\b{kw}\b", lower) for kw in course_keywords)
+
+    # Check if user specified a list of dishes/courses
+    segments = [s.strip() for s in re.split(r"[,;]+|\band\b", text_no_rename) if s.strip()]
+    specs: List[Dict[str, str]] = []
+
+    word_to_num = {"one": 1, "two": 2, "three": 3, "four": 4, "1": 1, "2": 2, "3": 3, "4": 4}
+    default_queries = {
+        "Appetizer": "savory appetizer starter",
+        "Starter": "soup or salad starter",
+        "Main": "savory main dinner entree",
+        "Side": "savory roasted vegetable or potato side dish",
+        "Dessert": "sweet baked dessert pie or crisp",
+    }
+
+    for seg in segments:
+        seg_l = seg.lower()
+        # Skip pure framing segments like "I need to plan a dinner for 6" unless they contain course specs
+        if re.match(r"^(?:i\s+need\s+to|i\s+want\s+to|let's|can\s+we|please)?\s*(?:plan|make|do|have|include)\s+(?:a\s+)?(?:\d+\s*-?\s*course\s+)?(?:dinner|lunch|meal|menu|party|event)(?:\s+for\s+\d+(?:\s+guests|\s+people)?)?$", seg_l):
+            continue
+
+        matched_course: Optional[str] = None
+        if any(w in seg_l for w in ("appetizer", "appetizers", "hors d'oeuvre")):
+            matched_course = "Appetizer"
+        elif any(w in seg_l for w in ("starter", "starters")):
+            matched_course = "Starter"
+        elif any(w in seg_l for w in ("main", "mains", "entree", "entrees")):
+            matched_course = "Main"
+        elif any(w in seg_l for w in ("side", "sides")):
+            matched_course = "Side"
+        elif any(w in seg_l for w in ("dessert", "desserts", "sweet")):
+            matched_course = "Dessert"
+
+        if matched_course:
+            # Check if a multiplier was specified (e.g. "2 sides" or "two side dishes")
+            count = 1
+            m_cnt = re.search(r"\b(one|two|three|four|1|2|3|4)\s+(?:[a-z]+\s+)?(?:appetizers|starters|mains|entrees|sides|side\s+dishes|desserts)\b", seg_l)
+            if m_cnt:
+                count = word_to_num.get(m_cnt.group(1), 1)
+
+            cleaned_desc = re.sub(
+                r"\b(?:i'd\s+like|let's\s+do|let's\s+have|include|with|a|an|some|one|two|three|four|1|2|3|4|appetizer|appetizers|starter|starters|main\s+course|main\s+dish|main|mains|entree|entrees|side\s+dish|side\s+dishes|side|sides|dessert|desserts|course|courses|for)\b",
+                "",
+                seg,
+                flags=re.IGNORECASE,
+            ).strip(" :,-.?!")
+            cleaned_desc = _clean_dish_search_query(cleaned_desc) if cleaned_desc else ""
+            query = cleaned_desc if len(cleaned_desc) >= 3 else default_queries[matched_course]
+            for _ in range(count):
+                specs.append({"course": matched_course, "query": query})
+
+    if specs:
+        return specs
+
+    # Check if user simply asked for "3 courses" / "4 courses" without naming each course
+    m_num_courses = re.search(r"\b(two|three|four|five|2|3|4|5)\s*-?\s*courses?\b", lower)
+    if m_num_courses:
+        n_c = {"two": 2, "three": 3, "four": 4, "five": 5, "2": 2, "3": 3, "4": 4, "5": 5}.get(m_num_courses.group(1), 3)
+        if n_c == 2:
+            return [{"course": "Main", "query": default_queries["Main"]}, {"course": "Dessert", "query": default_queries["Dessert"]}]
+        if n_c == 3:
+            return [
+                {"course": "Appetizer", "query": default_queries["Appetizer"]},
+                {"course": "Main", "query": default_queries["Main"]},
+                {"course": "Dessert", "query": default_queries["Dessert"]},
+            ]
+        if n_c == 4:
+            return [
+                {"course": "Appetizer", "query": default_queries["Appetizer"]},
+                {"course": "Main", "query": default_queries["Main"]},
+                {"course": "Side", "query": default_queries["Side"]},
+                {"course": "Dessert", "query": default_queries["Dessert"]},
+            ]
+        return [
+            {"course": "Appetizer", "query": default_queries["Appetizer"]},
+            {"course": "Starter", "query": default_queries["Starter"]},
+            {"course": "Main", "query": default_queries["Main"]},
+            {"course": "Side", "query": default_queries["Side"]},
+            {"course": "Dessert", "query": default_queries["Dessert"]},
+        ]
+
+    if has_course_word and len(segments) >= 2:
+        return [
+            {"course": "Appetizer", "query": default_queries["Appetizer"]},
+            {"course": "Main", "query": default_queries["Main"]},
+            {"course": "Dessert", "query": default_queries["Dessert"]},
+        ]
+
+    return None
+
+
 def _extract_menu_modification_intent(user_msg: str) -> Optional[Dict[str, Any]]:
     """Detects if the user is asking to replace, swap, add, or remove a dish in an event menu."""
     text = user_msg.strip()
 
     # 1. Replace / Swap / Switch / Change X with/for/to Y
     m_rep = re.search(
-        r"\b(?:replace|swap|switch|change|substitute)\s+(?:the\s+|our\s+|my\s+)?(.+?)\s+(?:with|for|to)\s+(?:a\s+|an\s+|some\s+|some\s+sort\s+of\s+|some\s+kind\s+of\s+|another\s+)?(.+)",
+        r"\b(?:replace|swap|switch|change|substitute)\s+(?:the\s+|our\s+|my\s+)?(.+?)\s+(?:with|for|to)\s+(?:some\s+sort\s+of\s+|some\s+kind\s+of\s+|some\s+type\s+of\s+|a\s+sort\s+of\s+|a\s+kind\s+of\s+|some\s+|another\s+|a\s+|an\s+)?(.+)",
         text,
         re.IGNORECASE,
     )
     if m_rep:
         target = m_rep.group(1).strip().rstrip(".,?!")
-        new_q = re.sub(r"\s+(?:on|in|for)\s+(?:the\s+)?(?:menu|dinner|lunch|party|feast)$", "", m_rep.group(2).strip(), flags=re.IGNORECASE).rstrip(".,?!")
+        new_q = _clean_dish_search_query(m_rep.group(2))
         return {"action": "replace", "target": target, "dish_query": new_q}
 
     # 2. "Use Y instead of X"
     m_inst1 = re.search(
-        r"\b(?:use|do|have|make|serve)\s+(?:a\s+|an\s+|some\s+|some\s+sort\s+of\s+)?(.+?)\s+instead\s+of\s+(?:the\s+|our\s+)?(.+)",
+        r"\b(?:use|do|have|make|serve)\s+(?:some\s+sort\s+of\s+|some\s+kind\s+of\s+|some\s+|a\s+|an\s+)?(.+?)\s+instead\s+of\s+(?:the\s+|our\s+)?(.+)",
         text,
         re.IGNORECASE,
     )
     if m_inst1:
-        new_q = m_inst1.group(1).strip().rstrip(".,?!")
+        new_q = _clean_dish_search_query(m_inst1.group(1))
         target = m_inst1.group(2).strip().rstrip(".,?!")
         return {"action": "replace", "target": target, "dish_query": new_q}
 
     # 3. "Instead of X, let's do Y"
     m_inst2 = re.search(
-        r"instead\s+of\s+(?:the\s+|our\s+)?(.+?)\s*,\s*(?:let's\s+|can\s+we\s+|could\s+we\s+)?(?:use|do|have|make|serve|replace\s+it\s+with)?\s*(?:a\s+|an\s+|some\s+|some\s+sort\s+of\s+)?(.+)",
+        r"instead\s+of\s+(?:the\s+|our\s+)?(.+?)\s*,\s*(?:let's\s+|can\s+we\s+|could\s+we\s+)?(?:use|do|have|make|serve|replace\s+it\s+with)?\s*(?:some\s+sort\s+of\s+|some\s+kind\s+of\s+|some\s+|a\s+|an\s+)?(.+)",
         text,
         re.IGNORECASE,
     )
     if m_inst2:
         target = m_inst2.group(1).strip().rstrip(".,?!")
-        new_q = m_inst2.group(2).strip().rstrip(".,?!")
+        new_q = _clean_dish_search_query(m_inst2.group(2))
         return {"action": "replace", "target": target, "dish_query": new_q}
 
     # 4. Add a course/dish ("Add a deviled egg appetizer", "Add a Caesar salad starter")
     m_add = re.search(
-        r"(?:^|\b)(?:add|include|also\s+serve|let's\s+add|can\s+we\s+add|could\s+we\s+add)\s+(?:a\s+|an\s+|some\s+|some\s+sort\s+of\s+)?(.+)",
+        r"(?:^|\b)(?:add|include|also\s+serve|let's\s+add|can\s+we\s+add|could\s+we\s+add)\s+(?:some\s+sort\s+of\s+|some\s+kind\s+of\s+|some\s+|a\s+|an\s+)?(.+)",
         text,
         re.IGNORECASE,
     )
@@ -900,8 +1068,7 @@ def _extract_menu_modification_intent(user_msg: str) -> Optional[Dict[str, Any]]
             raw_add,
             flags=re.IGNORECASE,
         ).strip(" ,.-?!")
-        if not clean_q:
-            clean_q = raw_add
+        clean_q = _clean_dish_search_query(clean_q) if clean_q else _clean_dish_search_query(raw_add)
 
         if not course:
             ql = clean_q.lower()
@@ -933,6 +1100,7 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
     session = _SESSIONS.setdefault(session_id, {
         "vibe_state": None,
         "active_menu_name": None,
+        "menu_planning_state": None,
         "turn_count": 0,
     })
     session["turn_count"] += 1
@@ -957,6 +1125,57 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             "events": events,
             "data": resp.to_dict(),
         }
+
+    # 1a. Event Naming / Renaming Follow-Up ("Okay, let's call this event 'Saturday Gamenight'")
+    rename_target = _extract_menu_rename_intent(user_msg)
+    if rename_target is not None and _extract_menu_modification_intent(user_msg) is None and _parse_requested_courses_spec(user_msg) is None:
+        from dinnerguest.agent import _menu_agent
+
+        # If we are currently awaiting course selection for a new event, record the label
+        plan_state = session.get("menu_planning_state")
+        if plan_state and plan_state.get("status") == "AWAITING_COURSES":
+            plan_state["event_name"] = rename_target
+            gc = plan_state.get("guest_count", 6)
+            events.append({"type": "thought", "text": f"Recorded custom event label '{rename_target}' for {gc} guests. Awaiting course preferences..."})
+            reply_text = (
+                f"🏷️ Got it — we'll label this event **\"{rename_target}\"** (for **{gc} guests**)!\n\n"
+                "What **number and types of courses/dishes** would you like to include in the plan? "
+                "(For example: *\"An appetizer, a grilled chicken main course, a side dish, and a dessert\"* or *\"3 courses: salad starter, pasta main, and fruit pie\"*)."
+            )
+            return {
+                "reply": reply_text,
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": plan_state,
+            }
+
+        active_menu_name = session.get("active_menu_name")
+        if not active_menu_name:
+            saved_menus = _menu_agent.list_saved_menus()
+            if saved_menus:
+                active_menu_name = saved_menus[0]["name"]
+
+        if active_menu_name:
+            tool_args = {"name_or_id": active_menu_name, "action": "rename", "dish_query": rename_target}
+            events.append({"type": "thought", "text": f"Renaming active event menu '{active_menu_name}' to '{rename_target}' in persistent storage..."})
+            events.append({"type": "tool_call", "tool": "update_event_menu_dish", "args": tool_args})
+            summary = _menu_agent.rename_event_menu(active_menu_name, rename_target)
+            if summary:
+                session["active_menu_name"] = summary.name
+                events.append({"type": "tool_result", "tool": "update_event_menu_dish", "args": tool_args, "result": summary.to_dict()})
+                headline = (
+                    f"🏷️ Saved and labeled this event menu as **\"{summary.name}\"** "
+                    f"(previously *{active_menu_name}*). You can recall or generate a shopping list for **\"{summary.name}\"** anytime!"
+                )
+                reply_text = _format_updated_menu_reply(summary, headline)
+                return {
+                    "reply": reply_text,
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "events": events,
+                    "data": summary.to_dict(),
+                }
 
     # 1b. Contextual Event Menu Follow-Up (Replace/Swap Dish, Add Course, Remove Dish)
     menu_mod = _extract_menu_modification_intent(user_msg)
@@ -1028,6 +1247,21 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                         f"✅ Replaced **{replaced_title}** with **{new_dish_entry['recipe_title']}**, "
                         f"automatically scaled to **{summary.guest_count} servings**, and updated the event allergen profile:"
                     )
+                    # Check if user noted a dietary avoidance (e.g. "doesn't eat beef" / "no beef") and warn if other courses contain it
+                    m_avoid = re.search(r"(?:doesn't\s+eat|don't\s+eat|no|avoid|allergic\s+to)\s+(beef|pork|chicken|meat|dairy|gluten|nuts|shellfish|fish)", lower)
+                    if m_avoid:
+                        avoid_term = m_avoid.group(1).lower()
+                        other_flagged = [
+                            f"**{d.recipe_title}** (*{d.course}*)"
+                            for d in summary.dishes
+                            if d.recipe_title != new_dish_entry["recipe_title"]
+                            and any(avoid_term in ing.lower() for ing in (d.scaled_ingredients or d.original_ingredients))
+                        ]
+                        if other_flagged:
+                            headline += (
+                                f"\n\n💡 **Dietary Heads-Up**: Since a guest avoids **{avoid_term}**, please note that "
+                                f"{', '.join(other_flagged)} on the menu also contains {avoid_term}. Let me know if you'd like to swap that out as well!"
+                            )
                     reply_text = _format_updated_menu_reply(summary, headline, featured_dish=matched_menu_dish)
                     return {
                         "reply": reply_text,
@@ -1110,6 +1344,119 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                         "events": events,
                         "data": summary.to_dict(),
                     }
+
+    # 1c. In-progress Interactive Event Menu Course Selection
+    plan_state = session.get("menu_planning_state")
+    if plan_state and plan_state.get("status") == "AWAITING_COURSES":
+        course_specs = _parse_requested_courses_spec(user_msg)
+        if course_specs:
+            from dinnerguest.agent import _menu_agent
+            from dinnerguest.tools.vibe_search_tool import VibeSearchTool
+
+            vibe_tool = VibeSearchTool()
+            inline_name = _extract_menu_rename_intent(user_msg) or _extract_custom_event_label(user_msg)
+            event_name = inline_name or plan_state.get("event_name") or "Custom Dinner Menu"
+            guest_count = plan_state.get("guest_count", 6)
+            m_gc = re.search(r"\b(?:for\s+)(\d+)\s*(?:guests|people|servings)\b", lower)
+            if m_gc:
+                guest_count = int(m_gc.group(1))
+
+            events.append({
+                "type": "thought",
+                "text": f"Building custom {len(course_specs)}-course menu for '{event_name}' ({guest_count} guests)...",
+            })
+            built_dishes: List[Dict[str, Any]] = []
+            used_ids = set()
+            for spec in course_specs:
+                c_label = spec["course"]
+                c_query = spec["query"]
+                events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": c_query}})
+                cands = vibe_tool.search_by_vibe(c_query, limit=5)
+                events.append({"type": "tool_result", "tool": "search_recipes_by_vibe", "args": {"query": c_query}, "result": [c.to_dict() for c in cands[:2]]})
+                chosen = next((c for c in cands if c.recipe_id not in used_ids), cands[0] if cands else None)
+                if chosen:
+                    used_ids.add(chosen.recipe_id)
+                    built_dishes.append({
+                        "recipe_id": chosen.recipe_id,
+                        "recipe_title": chosen.title,
+                        "course": c_label,
+                        "original_servings": chosen.servings,
+                        "ingredients": chosen.ingredients,
+                    })
+
+            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": event_name, "guest_count": guest_count}})
+            summary = _menu_agent.plan_and_save_event_menu(
+                name=event_name,
+                guest_count=guest_count,
+                dishes=built_dishes,
+                theme=f"Custom {len(built_dishes)}-Course Menu",
+                auto_scale=True,
+            )
+            session["active_menu_name"] = summary.name
+            session["menu_planning_state"] = None
+            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": event_name}, "result": summary.to_dict()})
+
+            label_hint = (
+                f"You can rename this event anytime (e.g., *\"Let's call this event 'Saturday Gamenight'\"*)."
+                if event_name == "Custom Dinner Menu"
+                else f"Saved under the event label **\"{summary.name}\"** for easy recall!"
+            )
+            headline = f"🎉 **Planned & Scaled '{summary.name}' for {guest_count} Guests**\n{label_hint}"
+            reply_text = _format_updated_menu_reply(summary, headline)
+            return {
+                "reply": reply_text,
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "events": events,
+                "data": summary.to_dict(),
+            }
+
+    # 1d. Recall or Grocery List for a Previously Saved Named Event Menu
+    from dinnerguest.agent import _menu_agent as _global_menu_agent
+    all_saved_menus = _global_menu_agent.list_saved_menus()
+    referenced_menu = None
+    for sm in all_saved_menus:
+        sm_name = (sm.get("name") or "").strip()
+        if sm_name and len(sm_name) >= 3 and sm_name.lower() in lower:
+            if not any(h in lower and "plan" in lower for h in ("thanksgiving", "easter")):
+                referenced_menu = sm_name
+                break
+
+    if referenced_menu and any(k in lower for k in ("menu", "what", "show", "recall", "pull up", "planned", "grocery", "shopping")):
+        session["active_menu_name"] = referenced_menu
+        if "grocery" in lower or "shopping" in lower:
+            events.append({"type": "thought", "text": f"Generating consolidated grocery list for saved event '{referenced_menu}'..."})
+            events.append({"type": "tool_call", "tool": "generate_grocery_list_for_menu", "args": {"name_or_id": referenced_menu}})
+            glist = _global_menu_agent.generate_menu_grocery_list(referenced_menu)
+            events.append({"type": "tool_result", "tool": "generate_grocery_list_for_menu", "args": {"name_or_id": referenced_menu}, "result": glist.to_dict() if glist else {}})
+            if glist:
+                lines = [f"🛒 **Consolidated Grocery List for '{referenced_menu}'** ({len(glist.items)} items across aisles):"]
+                for aisle, items in glist.aisle_groups.items():
+                    lines.append(f"\n**[{aisle}]**")
+                    for itm in items:
+                        pkg = f" *({itm.packaging_note})*" if itm.packaging_note else ""
+                        lines.append(f"• {itm.display_quantity} {itm.canonical_name}{pkg}")
+                return {
+                    "reply": "\n".join(lines),
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "events": events,
+                }
+        else:
+            events.append({"type": "thought", "text": f"Recalling saved event menu '{referenced_menu}' from persistent memory..."})
+            events.append({"type": "tool_call", "tool": "get_event_menu", "args": {"name_or_id": referenced_menu}})
+            summary = _global_menu_agent.get_event_menu(referenced_menu)
+            if summary:
+                events.append({"type": "tool_result", "tool": "get_event_menu", "args": {"name_or_id": referenced_menu}, "result": summary.to_dict()})
+                headline = f"📋 Recalled saved menu for **\"{summary.name}\"** ({summary.guest_count} guests):"
+                reply_text = _format_updated_menu_reply(summary, headline)
+                return {
+                    "reply": reply_text,
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "events": events,
+                    "data": summary.to_dict(),
+                }
 
     # 2. Event Menu / Holiday / Meal Planning & Grocery List Request
     holidays = ["thanksgiving", "easter", "christmas", "new year", "passover", "hanukkah", "st patrick", "halloween"]
@@ -1319,71 +1666,101 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 "data": summary.to_dict(),
             }
 
-        # 2c. Multi-Course Dinner Party Planning
+        # 2c. Non-Holiday Multi-Course Meal / Event Planning
         if "party" in lower or "3-course" in lower or is_planning_meal:
-            events.append({"type": "thought", "text": "Planning multi-course dinner party menu with course balance and allergen profile..."})
-            guest_count = 8
-            m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
+            guest_count = 6
+            m = re.search(r"\b(?:for\s+)(\d+)\s*(?:guests|people|servings)?\b", lower) or re.search(r"\b(\d+)\s*(?:guests|people|servings)\b", lower)
             if m and int(m.group(1)) > 0:
                 guest_count = int(m.group(1))
 
-            dishes = [
-                {
-                    "recipe_id": "recipe_010",
-                    "recipe_title": by_id.get("recipe_010", {}).get("title", "Rustic Beef & Onion Stuffed Peppers"),
-                    "course": "Appetizer",
-                    "original_servings": by_id.get("recipe_010", {}).get("servings", 4),
-                    "ingredients": by_id.get("recipe_010", {}).get("ingredients", []),
-                },
-                {
-                    "recipe_id": "recipe_001",
-                    "recipe_title": by_id.get("recipe_001", {}).get("title", "Classic Italian Meatballs"),
-                    "course": "Main",
-                    "original_servings": by_id.get("recipe_001", {}).get("servings", 4),
-                    "ingredients": by_id.get("recipe_001", {}).get("ingredients", []),
-                },
-                {
-                    "recipe_id": "recipe_002",
-                    "recipe_title": by_id.get("recipe_002", {}).get("title", "Bakery Style Chocolate Chip Cookies"),
-                    "course": "Dessert",
-                    "original_servings": by_id.get("recipe_002", {}).get("servings", 12),
-                    "ingredients": by_id.get("recipe_002", {}).get("ingredients", []),
-                },
-            ]
+            custom_label = _extract_menu_rename_intent(user_msg) or _extract_custom_event_label(user_msg)
+            course_specs = _parse_requested_courses_spec(user_msg)
 
-            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": "Dinner Party", "guest_count": guest_count}})
+            # If the user has not specified the number/types of courses yet, ask interactively!
+            if course_specs is None:
+                events.append({
+                    "type": "thought",
+                    "text": f"Detected non-holiday meal planning request for {guest_count} guests. Prompting user for course structure and event label...",
+                })
+                plan_state_data = {
+                    "status": "AWAITING_COURSES",
+                    "guest_count": guest_count,
+                    "event_name": custom_label,
+                }
+                session["menu_planning_state"] = plan_state_data
+
+                if custom_label:
+                    reply_lines = [
+                        f"🍽️ I'd love to help you plan **\"{custom_label}\"** for **{guest_count} guests**!",
+                        "",
+                        "Before I put the menu together, **how many and what types of courses/dishes** would you like to include?",
+                        "- *Examples*: *\"An appetizer, a grilled chicken main course, two side dishes, and a dessert\"* or *\"3 courses: a soup starter, pasta main, and fruit pie\"*.",
+                        "- Feel free to share any dietary restrictions or preferences (such as *no beef* or *vegetarian*) as well!",
+                    ]
+                else:
+                    reply_lines = [
+                        f"🍽️ I'd love to help you plan your meal for **{guest_count} guests**!",
+                        "",
+                        "To tailor the plan to your event, let me know:",
+                        "1. **Courses & Dishes**: How many and what types of dishes/courses should we include? *(For example: \"An appetizer, a grilled chicken main course, a side dish, and a dessert\" or \"3 courses: starter, main, and dessert\")*",
+                        "2. **Event Name / Label**: What would you like to call this event *(e.g., \"Saturday Gamenight\", \"Birthday Dinner\")* so we can save and easily recall the menu later?",
+                    ]
+
+                return {
+                    "reply": "\n".join(reply_lines),
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "events": events,
+                    "data": plan_state_data,
+                }
+
+            # User provided course specifications inline — build the custom menu dynamically
+            event_name = custom_label or "Dinner Party"
+            events.append({
+                "type": "thought",
+                "text": f"Planning {len(course_specs)}-course menu for '{event_name}' ({guest_count} guests)...",
+            })
+            built_dishes: List[Dict[str, Any]] = []
+            used_ids = set()
+            for spec in course_specs:
+                c_label = spec["course"]
+                c_query = spec["query"]
+                events.append({"type": "tool_call", "tool": "search_recipes_by_vibe", "args": {"query": c_query}})
+                cands = vibe_tool.search_by_vibe(c_query, limit=5)
+                events.append({"type": "tool_result", "tool": "search_recipes_by_vibe", "args": {"query": c_query}, "result": [c.to_dict() for c in cands[:2]]})
+                chosen = next((c for c in cands if c.recipe_id not in used_ids), cands[0] if cands else None)
+                if chosen:
+                    used_ids.add(chosen.recipe_id)
+                    built_dishes.append({
+                        "recipe_id": chosen.recipe_id,
+                        "recipe_title": chosen.title,
+                        "course": c_label,
+                        "original_servings": chosen.servings,
+                        "ingredients": chosen.ingredients,
+                    })
+
+            events.append({"type": "tool_call", "tool": "plan_and_save_event_menu", "args": {"name": event_name, "guest_count": guest_count}})
             summary = _menu_agent.plan_and_save_event_menu(
-                name="Dinner Party",
+                name=event_name,
                 guest_count=guest_count,
-                dishes=dishes,
-                theme="Italian Dinner Party",
-                notes="Classic multi-course Italian dinner party menu.",
+                dishes=built_dishes,
+                theme=f"{len(built_dishes)}-Course Event Menu",
+                notes=f"Custom {len(built_dishes)}-course menu planned for {guest_count} guests.",
                 auto_scale=True,
             )
             session["active_menu_name"] = summary.name
-            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": "Dinner Party"}, "result": summary.to_dict()})
+            session["menu_planning_state"] = None
+            events.append({"type": "tool_result", "tool": "plan_and_save_event_menu", "args": {"name": event_name}, "result": summary.to_dict()})
 
-            reply_lines = [
-                f"🎉 **3-Course Dinner Party Planned & Scaled for {guest_count} Guests**",
-                "",
-                "I've planned a balanced 3-course dinner party menu, scaled portions, and saved it to persistent memory:",
-                "",
-                "### 🍽️ Planned Courses:",
-                f"1. **Starter**: **{dishes[0]['recipe_title']}** (Scaled to {guest_count} servings)",
-                f"2. **Main Course**: **{dishes[1]['recipe_title']}** (Scaled to {guest_count} servings)",
-                f"3. **Dessert**: **{dishes[2]['recipe_title']}** (Scaled to {guest_count} servings)",
-                "",
-                "---",
-                "### 🛡️ Consolidated Allergen Profile:",
-                f"- **Detected Allergens**: {', '.join(summary.consolidated_allergens) if summary.consolidated_allergens else 'None'}",
-                "",
-                "---",
-                "### 📋 Next Steps:",
-                "- Prompt **\"grocery list\"** for the complete supermarket shopping list by aisle.",
-            ]
-
+            label_note = (
+                "💡 *Tip: Give this event a custom label anytime (e.g., \"Let's call this event 'Saturday Gamenight'\") so you can recall it later!*"
+                if not custom_label
+                else f"🏷️ *Saved under the label **\"{summary.name}\"** for easy recall!*"
+            )
+            headline = f"🎉 **Planned & Scaled '{summary.name}' ({len(built_dishes)} Courses for {guest_count} Guests)**\n{label_note}"
+            reply_text = _format_updated_menu_reply(summary, headline)
             return {
-                "reply": "\n".join(reply_lines),
+                "reply": reply_text,
                 "session_id": session_id,
                 "trace_id": trace_id,
                 "events": events,
@@ -1517,7 +1894,8 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
 
     # 5. On-Hand Ingredients Request
     pantry_clues = ["have", "fridge", "pantry", "make with", "cook with", "ingredients", "got"]
-    if any(k in lower for k in pantry_clues) or "," in user_msg:
+    is_conversational_prefix = bool(re.match(r"^(?:okay|ok|yes|no|sure|hey|well|actually|so|please|let's|lets)\s*,", lower))
+    if any(k in lower for k in pantry_clues) or ("," in user_msg and not is_conversational_prefix):
         events.append({"type": "thought", "text": "Analyzing user pantry ingredients, matching culinary substitutions, and checking missing staples..."})
         from dinnerguest.agents.on_hand_agent import OnHandRecommendationAgent
         on_hand_agent = OnHandRecommendationAgent()
