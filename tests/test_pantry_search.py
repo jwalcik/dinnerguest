@@ -81,6 +81,68 @@ class TestPantrySearchTool(unittest.TestCase):
         sub_targets = [s.recipe_ingredient for s in crisp.substituted_ingredients]
         self.assertTrue(any("sugar" in s for s in sub_targets))
 
+    def test_derivative_false_positive_rejection(self):
+        from dinnerguest.tools.pantry_search_tool import ingredients_match
+
+        # Fresh ingredients must NEVER match soups, broths, sauces, pastes, or unrelated vegetables
+        self.assertFalse(ingredients_match("tomato", "1 (10 oz.) can condensed tomato soup"))
+        self.assertFalse(ingredients_match("tomato", "1 cup tomato sauce"))
+        self.assertFalse(ingredients_match("chicken breasts", "1 cup chicken broth"))
+        self.assertFalse(ingredients_match("chicken breasts", "1 can cream of chicken soup"))
+        self.assertFalse(ingredients_match("black pepper", "4 bell peppers, halved"))
+        self.assertFalse(ingredients_match("butter", "2 tbsp peanut butter"))
+
+        # Valid singular/plural, comma-separated prep adjectives, and bun/roll equivalences MUST match
+        self.assertTrue(ingredients_match("chicken breasts", "4 boneless, skinless chicken breasts"))
+        self.assertTrue(ingredients_match("chicken breasts", "4 boneless skinless chicken breast halves"))
+        self.assertTrue(ingredients_match("hamburger buns", "4 sandwich buns"))
+        self.assertTrue(ingredients_match("hamburger buns", "4 brioche burger buns"))
+        self.assertTrue(ingredients_match("ranch dressing", "1/2 cup ranch salad dressing"))
+
+    def test_chicken_bacon_ranch_sandwich_vs_frontier_dinner(self):
+        from unittest.mock import patch
+
+        mock_candidates = [
+            {
+                "id": "kaggle_267371",
+                "title": "Frontier Dinner",
+                "servings": 4,
+                "ingredients": [
+                    "1 (7 oz.) pkg. elbow macaroni (2 c.), uncooked",
+                    "1 (15 oz.) can chili",
+                    "1 (10 oz.) can condensed tomato soup",
+                ],
+                "instructions": ["Cook macaroni, stir in chili and tomato soup."],
+                "tags": [],
+            },
+            {
+                "id": "kaggle_chicken_1",
+                "title": "Crispy Chicken Bacon Ranch Sandwiches",
+                "servings": 4,
+                "ingredients": [
+                    "4 boneless, skinless chicken breasts",
+                    "4 hamburger buns, toasted",
+                    "8 strips bacon, cooked crisp",
+                    "4 leaves romaine lettuce",
+                    "1 large tomato, sliced",
+                    "0.5 cup ranch dressing",
+                    "0.5 tsp salt",
+                    "0.5 tsp black pepper",
+                ],
+                "instructions": ["Grill chicken, toast buns, assemble with bacon, lettuce, tomato, and ranch."],
+                "tags": [],
+            },
+        ]
+        user_items = ["chicken breasts", "hamburger buns", "lettuce", "tomato", "bacon", "ranch dressing"]
+        with patch("dinnerguest.database.fetch_pantry_candidates_from_db", return_value=mock_candidates):
+            result = self.search_tool.search_recipes(user_items, category="dinner", max_missing=2)
+
+        titles = [r.title for r in result.recipes]
+        self.assertIn("Crispy Chicken Bacon Ranch Sandwiches", titles)
+        self.assertNotIn("Frontier Dinner", titles)
+        self.assertEqual(result.recipes[0].title, "Crispy Chicken Bacon Ranch Sandwiches")
+        self.assertEqual(len(result.recipes[0].unused_ingredients), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

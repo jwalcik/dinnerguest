@@ -251,7 +251,11 @@
     "hoisin sauce": ["soybeans", "wheat", "sesame"],
     "imitation crab": ["fish", "wheat", "eggs", "crustacean_shellfish"],
     "surimi": ["fish", "wheat", "eggs"],
-    "seitan": ["wheat"]
+    "seitan": ["wheat"],
+    "ranch dressing": ["milk", "eggs"],
+    "hamburger buns": ["wheat"],
+    "burger buns": ["wheat"],
+    "brioche": ["wheat", "eggs", "milk"]
   },
   "ambiguous_tokens": [
     "natural flavor",

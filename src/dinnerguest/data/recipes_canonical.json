@@ -733,5 +733,67 @@
       "Remove from heat and let rest for 3 minutes on a cutting board.",
       "Slice tuna across the grain into 1/4-inch slices, drizzle with the remaining spicy glaze, and garnish with sliced scallions."
     ]
+  },
+  {
+    "id": "recipe_024",
+    "title": "Crispy Chicken Bacon Ranch Sandwiches",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": [
+      "chicken",
+      "sandwich",
+      "dinner",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "4 boneless, skinless chicken breasts",
+      "4 hamburger buns, toasted",
+      "8 strips bacon, cooked crisp",
+      "4 leaves romaine lettuce",
+      "1 large tomato, sliced",
+      "0.5 cup ranch dressing",
+      "0.5 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Season chicken breasts on both sides with salt and black pepper.",
+      "Cook bacon in a large skillet over medium-high heat until crisp; transfer to paper towels and leave 1 tablespoon of drippings in the pan.",
+      "Sear chicken breasts in the skillet for 5 to 6 minutes per side until golden brown and cooked through (165 degrees F).",
+      "Toast hamburger buns lightly.",
+      "Spread ranch dressing generously on the top and bottom buns, layer with lettuce, sliced tomato, cooked chicken breast, and crispy bacon strips."
+    ]
+  },
+  {
+    "id": "recipe_025",
+    "title": "Grilled Chicken Bacon Club Sandwiches",
+    "servings": 4,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 15,
+    "tags": [
+      "chicken",
+      "sandwich",
+      "dinner",
+      "grill",
+      "savory"
+    ],
+    "ingredients": [
+      "4 boneless, skinless chicken breasts",
+      "4 hamburger buns, toasted",
+      "8 strips bacon, cooked",
+      "4 leaves lettuce",
+      "1 large tomato, sliced",
+      "4 slices cheddar cheese",
+      "0.25 cup ranch dressing",
+      "0.5 tsp garlic powder",
+      "0.5 tsp salt",
+      "0.5 tsp black pepper"
+    ],
+    "instructions": [
+      "Season chicken breasts with garlic powder, salt, and black pepper.",
+      "Grill chicken over medium-high heat for 5 to 6 minutes per side, topping each breast with a slice of cheddar cheese during the last minute.",
+      "Assemble on toasted hamburger buns with ranch dressing, lettuce, sliced tomato, grilled cheesy chicken, and cooked bacon."
+    ]
   }
 ]

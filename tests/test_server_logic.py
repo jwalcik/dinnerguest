@@ -181,6 +181,17 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("driver", status)
         self.assertIn("recipe_count", status)
 
+    def test_on_hand_chicken_sandwich_dinner(self):
+        result = _execute_agent_turn(
+            user_msg="I've got some chicken breasts, hamburger buns, lettuce, tomato, bacon, and ranch dressing. What can I make for dinner?",
+            session_id="test_sess_chk_sand",
+            trace_id="test_trace_chk_sand",
+        )
+        self.assertIn("reply", result)
+        self.assertIn("Chicken Bacon", result["reply"])
+        self.assertIn("Sandwiches", result["reply"])
+        self.assertNotIn("Frontier Dinner", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -744,102 +744,209 @@ def fetch_recipes_from_db(
     return None
 
 
+def _execute_named_query(conn: Any, sql_str: str, params: Dict[str, Any]) -> List[Any]:
+    """Executes a SQL query with :named parameters on either pg8000.native or DB-API 2.0 cursor."""
+    if hasattr(conn, "run"):
+        return conn.run(sql_str, **params)
+    elif hasattr(conn, "cursor"):
+        param_order: List[Any] = []
+
+        def _repl(match: re.Match) -> str:
+            key = match.group(1)
+            param_order.append(params[key])
+            return "%s"
+
+        formatted_sql = re.sub(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)", _repl, sql_str)
+        cur = conn.cursor()
+        cur.execute(formatted_sql, tuple(param_order))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    return []
+
+
+def extract_sql_ingredient_stem(phrase: str) -> Optional[str]:
+    """Extracts a high-recall singular core keyword from a user ingredient for SQL matching."""
+    from dinnerguest.tools.pantry_search_tool import normalize_ingredient_phrase, stem_ingredient_word
+
+    norm = normalize_ingredient_phrase(phrase)
+    if not norm:
+        return None
+
+    # Skip generic spice/seasoning wildcards as required SQL stems
+    if any(w in norm for w in ("dry spice", "spices", "seasoning")):
+        return None
+
+    words = [stem_ingredient_word(w) for w in norm.split() if len(w) >= 2]
+    words = [w for w in words if w]
+    if not words:
+        return None
+
+    # Map common multi-word ingredients to their primary discriminating SQL stem
+    priority_stems = ("chicken", "beef", "pork", "turkey", "salmon", "tuna", "shrimp", "ranch", "bacon", "lettuce", "tomato", "onion", "apple", "oat", "carrot", "potato")
+    for p in priority_stems:
+        if p in words:
+            return p
+
+    if "bun" in words or "roll" in words:
+        return "bun"
+    if "sugar" in words:
+        return "sugar"
+
+    return words[-1]
+
+
 def fetch_pantry_candidates_from_db(
     ingredients: List[str],
     category: Optional[str] = None,
     limit: int = 100,
 ) -> Optional[List[Dict[str, Any]]]:
-    """Queries candidate recipes from Cloud SQL using hybrid vector RAG and ingredient lookups.
+    """Queries candidate recipes from Cloud SQL using hybrid vector RAG and multi-ingredient overlap SQL.
 
-    1. If category is provided (e.g. 'dessert', 'soup', 'breakfast') or ingredients are given,
-       uses dense vector similarity (search_recipes_by_vector) to semantically retrieve recipes
-       matching the category and ingredients from the embedded Cloud SQL recipes.
-    2. Additionally queries recipes where ingredients_raw matches any of the primary ingredients.
+    1. Uses dense vector similarity (search_recipes_by_vector) across all provided ingredients
+       (and specific dish category if not a generic meal label like 'dinner').
+    2. Queries Cloud SQL recipes ranked by the number of matching ingredient stems
+       (prioritizing recipes that match multiple user ingredients and have concise ingredient lists).
     3. Merges candidate sets and deduplicates by recipe ID.
     """
     candidates_by_id: Dict[str, Dict[str, Any]] = {}
+    generic_meal_categories = {"dinner", "lunch", "supper", "main", "main course", "entree", "savory"}
+    cat_lower = category.strip().lower() if category else None
 
-    # 1. Semantic Vector RAG Retrieval
+    # 1. Semantic Vector RAG Retrieval (using all user ingredients)
     query_terms = []
-    if category:
-        query_terms.append(category)
+    if cat_lower and cat_lower not in generic_meal_categories:
+        query_terms.append(cat_lower)
     if ingredients:
-        query_terms.extend(ingredients[:4])
-    vibe_query = " ".join(query_terms).strip()
+        query_terms.extend([i.strip() for i in ingredients if i.strip()])
+    vibe_query = ", ".join(query_terms).strip()
 
     if vibe_query:
         try:
             vector_results = search_recipes_by_vector(vibe_query, limit=min(limit, 50))
             if vector_results:
                 for r in vector_results:
-                    candidates_by_id[r["id"]] = r
+                    candidates_by_id[str(r["id"])] = r
         except Exception as vec_err:
             logger.debug("Vector candidate retrieval in fetch_pantry_candidates_from_db failed: %s", vec_err)
 
-    # 2. SQL Ingredient Lookup to supplement vector candidates
+    # 2. Multi-Ingredient Overlap SQL Lookup
     conn = get_db_connection()
     if conn is None:
         return list(candidates_by_id.values()) if candidates_by_id else None
 
     try:
-        clean_ings = [re.sub(r"[^\w\s]", "", i).strip() for i in ingredients if i.strip()]
-        clean_ings = [i for i in clean_ings if i and len(i) > 2][:5]
+        stems: List[str] = []
+        seen_stems = set()
+        for ing in ingredients:
+            st = extract_sql_ingredient_stem(ing)
+            if st and len(st) > 2 and st not in seen_stems:
+                seen_stems.add(st)
+                stems.append(st)
 
-        if not clean_ings and not category:
+        if not stems and not cat_lower:
             conn.close()
             return list(candidates_by_id.values()) if candidates_by_id else None
 
-        # Build SQL conditions
-        sql_conds = []
         params: Dict[str, Any] = {"limit": limit}
+        base_conds: List[str] = []
 
-        if category:
-            sql_conds.append("(title ILIKE :cat OR :cat_raw = ANY(tags) OR ingredients_raw::text ILIKE :cat)")
-            params["cat"] = f"%{category.strip()}%"
-            params["cat_raw"] = category.strip().lower()
+        # Only apply SQL category restriction for specific course types (NEVER for generic 'dinner'/'lunch')
+        if cat_lower and cat_lower not in generic_meal_categories:
+            if cat_lower == "dessert":
+                base_conds.append(
+                    "(title ILIKE '%dessert%' OR title ILIKE '%crisp%' OR title ILIKE '%cookie%' "
+                    "OR title ILIKE '%cake%' OR title ILIKE '%pie%' OR title ILIKE '%crumble%' "
+                    "OR title ILIKE '%tart%' OR title ILIKE '%brownie%' OR title ILIKE '%cobbler%' "
+                    "OR 'dessert' = ANY(tags) OR 'sweet' = ANY(tags))"
+                )
+            elif cat_lower in ("soup", "stew", "chowder"):
+                base_conds.append(
+                    "(title ILIKE '%soup%' OR title ILIKE '%stew%' OR title ILIKE '%chowder%' "
+                    "OR 'soup' = ANY(tags) OR 'stew' = ANY(tags))"
+                )
+            elif cat_lower in ("breakfast", "brunch"):
+                base_conds.append(
+                    "(title ILIKE '%breakfast%' OR title ILIKE '%pancake%' OR title ILIKE '%waffle%' "
+                    "OR title ILIKE '%omelet%' OR title ILIKE '%egg%' OR 'breakfast' = ANY(tags))"
+                )
+            else:
+                base_conds.append("(title ILIKE :cat OR :cat_raw = ANY(tags))")
+                params["cat"] = f"%{cat_lower}%"
+                params["cat_raw"] = cat_lower
 
-        if clean_ings:
-            ing_clauses = []
-            for idx, ing in enumerate(clean_ings):
-                key = f"ing_{idx}"
-                ing_clauses.append(f"ingredients_raw::text ILIKE :{key}")
-                params[key] = f"%{ing}%"
-            sql_conds.append(f"({' OR '.join(ing_clauses)})")
+        ing_len_sql = "(CASE WHEN jsonb_typeof(ingredients_raw) = 'array' THEN jsonb_array_length(ingredients_raw) ELSE 99 END)"
 
-        where_clause = " AND ".join(sql_conds) if sql_conds else "TRUE"
-        sql_str = f"""
-            SELECT id, title, servings, ingredients_raw, instructions_raw, tags
-            FROM recipes
-            WHERE {where_clause}
-            LIMIT :limit
-        """
+        if stems:
+            hit_exprs = []
+            for idx, st in enumerate(stems):
+                key = f"stem_{idx}"
+                params[key] = f"%{st}%"
+                hit_exprs.append(f"(CASE WHEN ingredients_raw::text ILIKE :{key} THEN 1 ELSE 0 END)")
 
-        if hasattr(conn, "run"):
-            rows = conn.run(sql_str, **params)
+            match_hits_sql = " + ".join(hit_exprs)
+            num_stems = len(stems)
+            params["max_ings"] = max(8, num_stems + 7)
+
+            # Tier 1: High ingredient overlap (e.g. >= 4 of 6 stems, >= 3 of 4 stems, >= 2 of 2-3 stems)
+            strict_min_hits = max(2, num_stems - 2) if num_stems >= 4 else min(2, num_stems)
+            params["min_hits"] = strict_min_hits
+
+            tier1_conds = list(base_conds) + [
+                f"({match_hits_sql}) >= :min_hits",
+                f"{ing_len_sql} BETWEEN 2 AND :max_ings",
+            ]
+            where_tier1 = " AND ".join(tier1_conds)
+            sql_tier1 = f"""
+                SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                FROM recipes
+                WHERE {where_tier1}
+                ORDER BY ({match_hits_sql}) DESC, {ing_len_sql} ASC
+                LIMIT :limit
+            """
+            rows = _execute_named_query(conn, sql_tier1, params)
             for row in rows:
                 r_id = str(row[0])
                 if r_id not in candidates_by_id:
                     candidates_by_id[r_id] = row_to_recipe_dict(row)
-            conn.close()
 
-        elif hasattr(conn, "cursor"):
-            cur = conn.cursor()
-            # Convert named params to %s
-            param_order = []
-            formatted_sql = sql_str
-            for k in params:
-                pattern = f":{k}"
-                if pattern in formatted_sql:
-                    param_order.append(params[k])
-                    formatted_sql = formatted_sql.replace(pattern, "%s")
-            cur.execute(formatted_sql, tuple(param_order))
-            rows = cur.fetchall()
+            # Tier 2 fallback if Tier 1 found fewer than 10 recipes and strict_min_hits > 1
+            if len(rows) < 10 and strict_min_hits > 1:
+                fallback_min = 2 if (num_stems >= 3 and cat_lower != "dessert") else 1
+                if fallback_min < strict_min_hits:
+                    params["min_hits"] = fallback_min
+                    tier2_conds = list(base_conds) + [
+                        f"({match_hits_sql}) >= :min_hits",
+                        f"{ing_len_sql} BETWEEN 2 AND :max_ings",
+                    ]
+                    where_tier2 = " AND ".join(tier2_conds)
+                    sql_tier2 = f"""
+                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                        FROM recipes
+                        WHERE {where_tier2}
+                        ORDER BY ({match_hits_sql}) DESC, {ing_len_sql} ASC
+                        LIMIT :limit
+                    """
+                    rows2 = _execute_named_query(conn, sql_tier2, params)
+                    for row in rows2:
+                        r_id = str(row[0])
+                        if r_id not in candidates_by_id:
+                            candidates_by_id[r_id] = row_to_recipe_dict(row)
+        else:
+            where_clause = " AND ".join(base_conds) if base_conds else "TRUE"
+            sql_str = f"""
+                SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                FROM recipes
+                WHERE {where_clause}
+                LIMIT :limit
+            """
+            rows = _execute_named_query(conn, sql_str, params)
             for row in rows:
                 r_id = str(row[0])
                 if r_id not in candidates_by_id:
                     candidates_by_id[r_id] = row_to_recipe_dict(row)
-            cur.close()
-            conn.close()
+
+        conn.close()
 
     except Exception as exc:
         logger.warning("Error fetching pantry candidates from Cloud SQL: %s", exc)
