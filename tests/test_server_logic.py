@@ -192,6 +192,39 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("Sandwiches", result["reply"])
         self.assertNotIn("Frontier Dinner", result["reply"])
 
+    def test_multi_turn_event_menu_modifications(self):
+        sess = "test_sess_menu_mods"
+        # Turn 1: Plan Thanksgiving Dinner
+        r1 = _execute_agent_turn("I'd like to plan Thanksgiving Dinner", sess, "tr_1")
+        self.assertIn("Thanksgiving Dinner", r1["reply"])
+        self.assertGreater(r1["data"]["grocery_item_count"], 0)
+        self.assertGreater(len(r1["data"]["dishes"][0]["original_ingredients"]), 0)
+
+        # Turn 2: Replace the Apple Crisp with a pecan pie
+        r2 = _execute_agent_turn("Replace the Apple Crisp with a pecan pie", sess, "tr_2")
+        self.assertIn("Updated 'Thanksgiving Dinner' Menu", r2["reply"])
+        self.assertIn("Pecan Pie", r2["reply"])
+        self.assertIn("Tree Nuts", r2["reply"])
+        dish_titles_t2 = [d["recipe_title"] for d in r2["data"]["dishes"]]
+        self.assertTrue(any("Pecan Pie" in t for t in dish_titles_t2))
+        self.assertFalse(any("Apple Cinnamon Crisp" in t for t in dish_titles_t2))
+
+        # Turn 3: Add a deviled egg appetizer
+        r3 = _execute_agent_turn("Add a deviled egg appetizer", sess, "tr_3")
+        self.assertIn("Deviled Eggs", r3["reply"])
+        self.assertEqual(r3["data"]["dish_count"], 5)
+        self.assertEqual(r3["data"]["dishes"][0]["course"], "Appetizer")
+
+        # Turn 4: Remove the stuffing
+        r4 = _execute_agent_turn("Remove the stuffing", sess, "tr_4")
+        self.assertIn("Removed **Traditional Savory Herb Stuffing**", r4["reply"])
+        self.assertEqual(r4["data"]["dish_count"], 4)
+
+        # Turn 5: Scale the menu to 12 guests
+        r5 = _execute_agent_turn("Scale to 12 guests", sess, "tr_5")
+        self.assertEqual(r5["data"]["guest_count"], 12)
+        self.assertIn("12 Guests", r5["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

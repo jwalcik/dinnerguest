@@ -304,23 +304,26 @@ class PantrySearchTool:
         self._load_data()
 
     def _load_data(self) -> None:
-        # Check Cloud SQL first if configured and populated
+        canonical_list: List[Dict[str, Any]] = []
+        if self.recipes_path.exists():
+            try:
+                with open(self.recipes_path, "r", encoding="utf-8") as f:
+                    canonical_list = json.load(f)
+            except Exception:
+                canonical_list = []
+
         try:
             from dinnerguest.database import fetch_recipes_from_db
             db_recipes = fetch_recipes_from_db(limit=100)
             if db_recipes:
-                self.recipes: List[Dict[str, Any]] = db_recipes
-            elif self.recipes_path.exists():
-                with open(self.recipes_path, "r", encoding="utf-8") as f:
-                    self.recipes = json.load(f)
+                by_id = {str(r["id"]): r for r in canonical_list}
+                for r in db_recipes:
+                    by_id[str(r["id"])] = r
+                self.recipes: List[Dict[str, Any]] = list(by_id.values())
             else:
-                self.recipes = []
+                self.recipes = canonical_list
         except Exception:
-            if self.recipes_path.exists():
-                with open(self.recipes_path, "r", encoding="utf-8") as f:
-                    self.recipes = json.load(f)
-            else:
-                self.recipes = []
+            self.recipes = canonical_list
 
         # Load substitutions
         if self.substitutions_path.exists():

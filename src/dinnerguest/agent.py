@@ -267,6 +267,104 @@ def generate_grocery_list_for_menu(name_or_id: str) -> Dict[str, Any]:
     return grocery_list.to_dict()
 
 
+def update_event_menu_dish(
+    name_or_id: str,
+    action: str,
+    dish_query: str = "",
+    target_dish_or_course: Optional[str] = None,
+    course: Optional[str] = None,
+    new_guest_count: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Modifies an existing event menu in context (replace a dish, add a course, remove a dish, or scale guest count).
+
+    When replacing or adding a dish, uses `search_by_vibe` to find a matching recipe for `dish_query`,
+    updates the saved event menu, automatically scales the dish to the menu's guest count, and recomputes
+    the consolidated allergen profile across all courses.
+
+    Args:
+        name_or_id: Name or ID of the saved event menu (e.g. "Thanksgiving Dinner").
+        action: One of "replace", "add", "remove", or "scale".
+        dish_query: Recipe search query for the new dish (e.g. "pecan pie", "deviled eggs", "fruit pie").
+        target_dish_or_course: Dish title or course to replace or remove (e.g. "Apple Crisp" or "Dessert").
+        course: Course label when adding or replacing a dish (e.g. "Appetizer", "Main", "Side", "Dessert").
+        new_guest_count: Target guest count when action is "scale".
+
+    Returns:
+        Updated event plan summary, replaced/added recipe details, and updated allergen profile.
+    """
+    act = action.strip().lower()
+    if act == "scale" and new_guest_count:
+        summary = _menu_agent.scale_event_menu(name_or_id, int(new_guest_count))
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        return summary.to_dict()
+
+    if act == "remove" and target_dish_or_course:
+        res = _menu_agent.remove_dish_from_event_menu(name_or_id, target_dish_or_course)
+        if not res:
+            return {"error": f"Could not remove '{target_dish_or_course}' from '{name_or_id}'."}
+        summary, removed_title = res
+        out = summary.to_dict()
+        out["removed_dish"] = removed_title
+        return out
+
+    # Search for the requested dish via VibeSearchTool
+    candidates = _vibe_tool.search_by_vibe(dish_query, limit=5) if dish_query else []
+    # Filter out any candidate that matches target_dish_or_course so we never replace a dish with itself
+    if target_dish_or_course and candidates:
+        target_words = [w.rstrip("s") for w in target_dish_or_course.lower().split() if len(w) >= 3]
+        filtered = [
+            c for c in candidates
+            if not (target_words and all(w in c.title.lower() for w in target_words))
+        ]
+        if filtered:
+            candidates = filtered
+
+    if candidates:
+        best = candidates[0]
+        new_dish_dict = {
+            "recipe_id": best.recipe_id,
+            "recipe_title": best.title,
+            "course": course or "Side",
+            "original_servings": best.servings,
+            "ingredients": best.ingredients,
+        }
+    else:
+        new_dish_dict = {
+            "recipe_id": "custom_dish",
+            "recipe_title": dish_query.strip().title() or "Custom Dish",
+            "course": course or "Side",
+            "original_servings": 4,
+            "ingredients": [dish_query.strip()] if dish_query.strip() else [],
+        }
+
+    if act == "replace":
+        if not course:
+            new_dish_dict["course"] = None  # Preserve replaced dish's course
+        res = _menu_agent.replace_dish_in_event_menu(
+            name_or_id=name_or_id,
+            target_dish_or_course=target_dish_or_course or "",
+            new_dish=new_dish_dict,
+        )
+        if not res:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        summary, replaced_title = res
+        out = summary.to_dict()
+        out["replaced_dish"] = replaced_title
+        out["new_dish"] = candidates[0].to_dict() if candidates else new_dish_dict
+        return out
+
+    if act == "add":
+        summary = _menu_agent.add_dish_to_event_menu(name_or_id=name_or_id, new_dish=new_dish_dict)
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = summary.to_dict()
+        out["added_dish"] = candidates[0].to_dict() if candidates else new_dish_dict
+        return out
+
+    return {"error": f"Unsupported action '{action}'."}
+
+
 # ADK Agent Definition
 DINNERGUEST_INSTRUCTION = """
 You are Dinnerguest, an expert culinary orchestration assistant designed to facilitate meal and party planning.
@@ -315,6 +413,7 @@ Your primary responsibilities include:
    - When a user is planning a dinner party, holiday meal, or named celebration:
    - Help them organize balanced courses (Appetizer, Main, Side, Dessert).
    - Call `save_event_menu` to save the menu with their desired guest count, theme, and selected dishes. Every dish is automatically scaled to the guest count and analyzed for allergens.
+   - Maintain conversational context across follow-up turns! If the user asks to replace or swap a dish (e.g., "Replace the Apple Crisp with a pecan pie" or "Maybe replace the apple crisp with some sort of fruit pie"), add a course (e.g., "Add a deviled egg appetizer"), remove a dish, or change the guest count, call `update_event_menu_dish` so the menu is updated in place, scaled to the event guest count, and re-evaluated for allergens.
    - When asked about existing plans (e.g., "What did we plan for our graduation party?"), call `get_event_menu` or `list_event_menus`.
    - When the user is ready to shop for the event, call `generate_grocery_list_for_menu`.
    - Always summarize allergen safety across courses so hosts know their guests are safe.
@@ -352,6 +451,7 @@ root_agent = Agent(
         get_event_menu,
         list_event_menus,
         generate_grocery_list_for_menu,
+        update_event_menu_dish,
     ],
 )
 

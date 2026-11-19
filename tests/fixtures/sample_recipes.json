@@ -795,5 +795,96 @@
       "Grill chicken over medium-high heat for 5 to 6 minutes per side, topping each breast with a slice of cheddar cheese during the last minute.",
       "Assemble on toasted hamburger buns with ranch dressing, lettuce, sliced tomato, grilled cheesy chicken, and cooked bacon."
     ]
+  },
+  {
+    "id": "recipe_026",
+    "title": "Classic Southern Pecan Pie",
+    "servings": 8,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 50,
+    "tags": [
+      "dessert",
+      "pie",
+      "pecan",
+      "sweet",
+      "baking",
+      "thanksgiving"
+    ],
+    "ingredients": [
+      "1 unbaked 9-inch pie crust (wheat flour)",
+      "2 cups pecan halves",
+      "3 large eggs",
+      "1 cup dark corn syrup",
+      "0.75 cup brown sugar",
+      "0.25 cup unsalted butter, melted",
+      "1 tsp vanilla extract",
+      "0.25 tsp salt"
+    ],
+    "instructions": [
+      "Preheat oven to 350 degrees F.",
+      "Arrange pecan halves evenly in the bottom of the unbaked pie crust.",
+      "Whisk together eggs, dark corn syrup, brown sugar, melted butter, vanilla extract, and salt until smooth.",
+      "Pour mixture evenly over the pecans in the crust.",
+      "Bake for 50 to 55 minutes until the center is set and crust is golden brown. Cool completely before slicing."
+    ]
+  },
+  {
+    "id": "recipe_027",
+    "title": "Classic Creamy Deviled Eggs",
+    "servings": 8,
+    "prep_time_minutes": 15,
+    "cook_time_minutes": 12,
+    "tags": [
+      "appetizer",
+      "starter",
+      "eggs",
+      "party",
+      "quick",
+      "savory"
+    ],
+    "ingredients": [
+      "8 large eggs",
+      "0.33 cup mayonnaise",
+      "1 tsp dijon mustard",
+      "1 tsp white vinegar",
+      "0.25 tsp salt",
+      "0.25 tsp black pepper",
+      "0.25 tsp paprika"
+    ],
+    "instructions": [
+      "Place eggs in a saucepan, cover with cold water, bring to a boil, and let sit covered off heat for 12 minutes.",
+      "Transfer eggs to an ice bath for 5 minutes, then peel and halve lengthwise.",
+      "Mash egg yolks in a bowl with mayonnaise, dijon mustard, vinegar, salt, and black pepper until smooth and creamy.",
+      "Spoon or pipe yolk mixture back into the egg white halves and garnish with a dusting of paprika."
+    ]
+  },
+  {
+    "id": "recipe_028",
+    "title": "Lattice-Crust Mixed Berry Fruit Pie",
+    "servings": 8,
+    "prep_time_minutes": 25,
+    "cook_time_minutes": 45,
+    "tags": [
+      "dessert",
+      "pie",
+      "fruit pie",
+      "sweet",
+      "baking"
+    ],
+    "ingredients": [
+      "2 pie crusts (wheat flour)",
+      "4 cups mixed berries (strawberries, blueberries, blackberries)",
+      "0.75 cup granulated sugar",
+      "3 tbsp cornstarch",
+      "1 tbsp lemon juice",
+      "2 tbsp unsalted butter",
+      "0.25 tsp salt"
+    ],
+    "instructions": [
+      "Preheat oven to 400 degrees F and line a 9-inch pie plate with one pastry crust.",
+      "Toss mixed berries with sugar, cornstarch, lemon juice, and salt; transfer into the crust and dot with butter.",
+      "Weave the second pie crust into a lattice top over the fruit filling and crimp edges.",
+      "Bake for 45 minutes until filling is bubbling and crust is golden brown."
+    ]
   }
 ]

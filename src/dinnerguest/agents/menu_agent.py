@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from dinnerguest.tools.allergen_tool import AllergenChecker, AllergenReport
 from dinnerguest.tools.grocery_tool import GroceryList, GroceryListAggregatorTool
@@ -117,6 +118,170 @@ class MenuPlanningAgent:
             })
 
         return self.grocery_tool.generate(recipe_entries)
+
+    @staticmethod
+    def _dish_to_input_dict(dish: MenuDish) -> Dict[str, Any]:
+        return {
+            "recipe_id": dish.recipe_id,
+            "recipe_title": dish.recipe_title,
+            "course": dish.course,
+            "original_servings": dish.servings,
+            "ingredients": dish.scaled_ingredients or dish.original_ingredients,
+        }
+
+    @staticmethod
+    def _matches_target_dish(dish: MenuDish, target: str) -> bool:
+        target_clean = target.strip().lower()
+        if not target_clean:
+            return False
+        title_lower = dish.recipe_title.lower()
+        course_lower = dish.course.lower()
+
+        if target_clean == course_lower or (target_clean in {"starter", "appetizer"} and course_lower in {"starter", "appetizer"}):
+            return True
+        if target_clean in title_lower or title_lower in target_clean:
+            return True
+
+        target_words = [w.rstrip("s") for w in re.findall(r"\b[a-z]{3,}\b", target_clean) if w not in {"the", "our", "dish", "course", "recipe"}]
+        if target_words and all(w in title_lower for w in target_words):
+            return True
+        if target_words and any(w in title_lower for w in target_words):
+            return True
+        return False
+
+    def replace_dish_in_event_menu(
+        self,
+        name_or_id: str,
+        target_dish_or_course: str,
+        new_dish: Dict[str, Any],
+    ) -> Optional[Tuple[EventPlanSummary, str]]:
+        """Replaces a matching dish or course in an existing saved event menu and re-evaluates allergens/scaling."""
+        menu = self.menu_store.get_menu(name_or_id)
+        if not menu or not menu.dishes:
+            return None
+
+        match_idx = -1
+        for idx, d in enumerate(menu.dishes):
+            if self._matches_target_dish(d, target_dish_or_course):
+                match_idx = idx
+                break
+
+        if match_idx == -1:
+            # Default to replacing the dish with the same course as new_dish, or the last dish
+            new_course = (new_dish.get("course") or "").lower()
+            for idx, d in enumerate(menu.dishes):
+                if new_course and d.course.lower() == new_course:
+                    match_idx = idx
+                    break
+            if match_idx == -1:
+                match_idx = len(menu.dishes) - 1
+
+        replaced_title = menu.dishes[match_idx].recipe_title
+        preserved_course = new_dish.get("course") or menu.dishes[match_idx].course
+
+        updated_dishes: List[Dict[str, Any]] = []
+        for idx, d in enumerate(menu.dishes):
+            if idx == match_idx:
+                updated_dishes.append({
+                    "recipe_id": new_dish.get("recipe_id"),
+                    "recipe_title": new_dish.get("recipe_title", "Custom Dish"),
+                    "course": preserved_course,
+                    "original_servings": new_dish.get("original_servings", 4),
+                    "ingredients": new_dish.get("ingredients", []),
+                })
+            else:
+                updated_dishes.append(self._dish_to_input_dict(d))
+
+        summary = self.plan_and_save_event_menu(
+            name=menu.name,
+            guest_count=menu.guest_count,
+            dishes=updated_dishes,
+            theme=menu.theme,
+            notes=menu.notes,
+            auto_scale=True,
+        )
+        return summary, replaced_title
+
+    def add_dish_to_event_menu(
+        self,
+        name_or_id: str,
+        new_dish: Dict[str, Any],
+    ) -> Optional[EventPlanSummary]:
+        """Adds a new dish/course to an existing saved event menu in logical course order."""
+        menu = self.menu_store.get_menu(name_or_id)
+        if not menu:
+            return None
+
+        course_order = {"appetizer": 0, "starter": 0, "main": 1, "side": 2, "dessert": 3, "drink": 4}
+        updated_dishes = [self._dish_to_input_dict(d) for d in menu.dishes]
+        updated_dishes.append({
+            "recipe_id": new_dish.get("recipe_id"),
+            "recipe_title": new_dish.get("recipe_title", "Custom Dish"),
+            "course": new_dish.get("course", "Side"),
+            "original_servings": new_dish.get("original_servings", 4),
+            "ingredients": new_dish.get("ingredients", []),
+        })
+        updated_dishes.sort(key=lambda d: course_order.get(str(d.get("course", "Side")).lower(), 2))
+
+        return self.plan_and_save_event_menu(
+            name=menu.name,
+            guest_count=menu.guest_count,
+            dishes=updated_dishes,
+            theme=menu.theme,
+            notes=menu.notes,
+            auto_scale=True,
+        )
+
+    def remove_dish_from_event_menu(
+        self,
+        name_or_id: str,
+        target_dish_or_course: str,
+    ) -> Optional[Tuple[EventPlanSummary, str]]:
+        """Removes a matching dish or course from an existing saved event menu."""
+        menu = self.menu_store.get_menu(name_or_id)
+        if not menu or not menu.dishes:
+            return None
+
+        removed_title: Optional[str] = None
+        updated_dishes: List[Dict[str, Any]] = []
+        for d in menu.dishes:
+            if removed_title is None and self._matches_target_dish(d, target_dish_or_course):
+                removed_title = d.recipe_title
+                continue
+            updated_dishes.append(self._dish_to_input_dict(d))
+
+        if removed_title is None:
+            return None
+
+        summary = self.plan_and_save_event_menu(
+            name=menu.name,
+            guest_count=menu.guest_count,
+            dishes=updated_dishes,
+            theme=menu.theme,
+            notes=menu.notes,
+            auto_scale=True,
+        )
+        return summary, removed_title
+
+    def scale_event_menu(
+        self,
+        name_or_id: str,
+        new_guest_count: int,
+    ) -> Optional[EventPlanSummary]:
+        """Scales all dishes in an existing saved event menu to a new guest count."""
+        menu = self.menu_store.get_menu(name_or_id)
+        if not menu:
+            return None
+
+        updated_dishes = [self._dish_to_input_dict(d) for d in menu.dishes]
+        return self.plan_and_save_event_menu(
+            name=menu.name,
+            guest_count=new_guest_count,
+            dishes=updated_dishes,
+            theme=menu.theme,
+            notes=menu.notes,
+            auto_scale=True,
+        )
 
     def _summarize_menu(self, menu: EventMenu) -> EventPlanSummary:
         """Calculates cross-dish dietary accommodations and course coverage."""

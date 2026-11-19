@@ -533,6 +533,10 @@ def search_recipes_by_vector(
 
     try:
         # 1. Attempt dense vector search via pgvector if an embedding can be generated
+        dish_words = [
+            w.rstrip("s") for w in re.findall(r"\b[a-zA-Z]{3,}\b", query_text.lower())
+            if w not in {"food", "dish", "make", "cook", "like", "want", "some", "sort", "kind", "recipe", "with", "and", "the", "for", "feel", "craving"}
+        ]
         query_vector = generate_embedding(query_text)
         if query_vector is not None:
             vec_str = "[" + ",".join(str(round(v, 6)) for v in query_vector) + "]"
@@ -548,6 +552,30 @@ def search_recipes_by_vector(
                     """, vec=vec_str, limit=limit)
                     if rows:
                         recipes = [row_to_recipe_dict(row) for row in rows]
+                        # If embeddings are partially populated and top vector hit doesn't match the dish title,
+                        # supplement with exact title matches from the full recipes table
+                        if dish_words and not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2]):
+                            try:
+                                dish_pattern = "%" + "%".join(dish_words[:3]) + "%"
+                                title_rows = conn.run("""
+                                    SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                    FROM recipes
+                                    WHERE title ILIKE :dp
+                                    LIMIT :limit
+                                """, dp=dish_pattern, limit=limit)
+                                if title_rows:
+                                    seen_ids = set()
+                                    merged = []
+                                    for tr in title_rows:
+                                        rd = row_to_recipe_dict(tr, score=0.95)
+                                        seen_ids.add(rd["id"])
+                                        merged.append(rd)
+                                    for vr in recipes:
+                                        if vr["id"] not in seen_ids:
+                                            merged.append(vr)
+                                    recipes = merged[:limit]
+                            except Exception:
+                                pass
                         conn.close()
                         return recipes
                 except Exception as pg_err:
@@ -567,6 +595,29 @@ def search_recipes_by_vector(
                     rows = cur.fetchall()
                     if rows:
                         recipes = [row_to_recipe_dict(row) for row in rows]
+                        if dish_words and not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2]):
+                            try:
+                                dish_pattern = "%" + "%".join(dish_words[:3]) + "%"
+                                cur.execute("""
+                                    SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                    FROM recipes
+                                    WHERE title ILIKE %s
+                                    LIMIT %s
+                                """, (dish_pattern, limit))
+                                title_rows = cur.fetchall()
+                                if title_rows:
+                                    seen_ids = set()
+                                    merged = []
+                                    for tr in title_rows:
+                                        rd = row_to_recipe_dict(tr, score=0.95)
+                                        seen_ids.add(rd["id"])
+                                        merged.append(rd)
+                                    for vr in recipes:
+                                        if vr["id"] not in seen_ids:
+                                            merged.append(vr)
+                                    recipes = merged[:limit]
+                            except Exception:
+                                pass
                         cur.close()
                         conn.close()
                         return recipes

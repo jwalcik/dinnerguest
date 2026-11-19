@@ -12,6 +12,7 @@ from dinnerguest.agent import (
     save_event_menu,
     scale_recipe_servings,
     search_recipes_by_vibe,
+    update_event_menu_dish,
 )
 
 
@@ -20,7 +21,7 @@ class TestDinnerguestAgent(unittest.TestCase):
         self.assertEqual(root_agent.name, "Dinnerguest")
         self.assertEqual(root_agent.model, "gemini-3.8-flash")
         self.assertIsNotNone(root_agent.instruction)
-        self.assertEqual(len(root_agent.tools), 9)
+        self.assertEqual(len(root_agent.tools), 10)
         self.assertEqual(len(root_agent.sub_agents), 3)
         sub_names = [a.name for a in root_agent.sub_agents]
         self.assertIn("VibeAgent", sub_names)
