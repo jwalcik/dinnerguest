@@ -151,6 +151,52 @@ HTML_PAGE = """<!DOCTYPE html>
       border: 1px solid var(--border);
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
+    .message.bot h1, .message.bot h2, .message.bot h3, .message.bot h4 {
+      color: #38bdf8;
+      margin: 12px 0 6px 0;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .message.bot h1 { font-size: 1.25rem; }
+    .message.bot h2 { font-size: 1.15rem; }
+    .message.bot h3 { font-size: 1.05rem; }
+    .message.bot p {
+      margin-bottom: 8px;
+    }
+    .message.bot ul, .message.bot ol {
+      margin: 8px 0 12px 20px;
+      padding-left: 6px;
+    }
+    .message.bot li {
+      margin-bottom: 4px;
+    }
+    .message.bot strong {
+      color: #f8fafc;
+      font-weight: 700;
+    }
+    .message.bot code {
+      background: #0b1120;
+      border: 1px solid #1e293b;
+      color: #38bdf8;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .message.bot pre.code-block {
+      background: #0b1120;
+      border: 1px solid #1e293b;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin: 8px 0;
+      overflow-x: auto;
+    }
+    .message.bot blockquote {
+      border-left: 3px solid #38bdf8;
+      padding-left: 12px;
+      margin: 8px 0;
+      color: var(--text-muted);
+    }
     .message.user {
       background: var(--bubble-user);
       color: #fff;
@@ -386,6 +432,63 @@ Ask me anything about cooking with pantry ingredients, mood-based recommendation
     const sendBtn = document.getElementById("send-btn");
     const modal = document.getElementById("tool-modal");
 
+    function renderMarkdown(md) {
+      if (!md) return "";
+      // Escape HTML entities to prevent XSS
+      let s = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+      // Code blocks (```language\ncode```)
+      s = s.replace(/```([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)```/g, function(match, lang, code) {
+        return '<pre class="code-block"><code>' + code.trim() + '</code></pre>';
+      });
+
+      // Inline code (`code`)
+      s = s.replace(/`([^`\\n]+)`/g, "<code>$1</code>");
+
+      // Headers (###, ##, #)
+      s = s.replace(/^### (.*$)/gm, "<h3>$1</h3>");
+      s = s.replace(/^## (.*$)/gm, "<h2>$1</h2>");
+      s = s.replace(/^# (.*$)/gm, "<h1>$1</h1>");
+
+      // Bold (**text** or __text__)
+      s = s.replace(/\\*\\*([^\\*\\n]+)\\*\\*/g, "<strong>$1</strong>");
+      s = s.replace(/__([^__\\n]+)__/g, "<strong>$1</strong>");
+
+      // Italic (*text* or _text_)
+      s = s.replace(/\\*([^\\*\\n]+)\\*/g, "<em>$1</em>");
+      s = s.replace(/(?<!\\w)_([^_\\n]+)_(?!\\w)/g, "<em>$1</em>");
+
+      // Blockquotes
+      s = s.replace(/^> (.*$)/gm, "<blockquote>$1</blockquote>");
+
+      // Unordered lists (- item, * item, • item)
+      s = s.replace(/(?:^[-*•]\\s+(.*(?:\\n|$)))+/gm, function(match) {
+        const items = match.trim().split(/\\n/).map(function(line) {
+          const itemText = line.replace(/^[-*•]\\s+/, "").trim();
+          return "<li>" + itemText + "</li>";
+        }).join("");
+        return "<ul>" + items + "</ul>";
+      });
+
+      // Ordered lists (1. item)
+      s = s.replace(/(?:^\\d+\\.\\s+(.*(?:\\n|$)))+/gm, function(match) {
+        const items = match.trim().split(/\\n/).map(function(line) {
+          const itemText = line.replace(/^\\d+\\.\\s+/, "").trim();
+          return "<li>" + itemText + "</li>";
+        }).join("");
+        return "<ol>" + items + "</ol>";
+      });
+
+      // Paragraphs & newlines: double newlines become paragraphs, single newlines become <br>
+      // Clean up extra spacing around block tags
+      s = s.replace(/<\\/(h[1-3]|ul|ol|pre|blockquote)>\\s*\\n/g, "</$1>");
+      s = s.replace(/\\n\\s*<(h[1-3]|ul|ol|pre|blockquote)/g, "<$1");
+      s = s.replace(/\\n\\n+/g, "<br><br>");
+      s = s.replace(/\\n/g, "<br>");
+
+      return s;
+    }
+
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -510,12 +613,12 @@ Ask me anything about cooking with pantry ingredients, mood-based recommendation
                   toolRow.appendChild(pill);
                 } else if (currentEvent === "content") {
                   finalContent = data.text || "";
-                  msgDiv.innerHTML = finalContent.replace(/\\n/g, "<br>");
+                  msgDiv.innerHTML = renderMarkdown(finalContent);
                 } else if (currentEvent === "done") {
                   traceId = data.trace_id;
                   if (data.reply) {
                     finalContent = data.reply;
-                    msgDiv.innerHTML = finalContent.replace(/\\n/g, "<br>");
+                    msgDiv.innerHTML = renderMarkdown(finalContent);
                   }
                 }
               } catch (e) {
