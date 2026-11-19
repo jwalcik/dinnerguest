@@ -437,12 +437,12 @@ Ask me anything about cooking with pantry ingredients, mood-based recommendation
       // Escape HTML entities to prevent XSS
       let s = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-      // Code blocks (```language\ncode```)
+      // Code blocks
       s = s.replace(/```([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)```/g, function(match, lang, code) {
         return '<pre class="code-block"><code>' + code.trim() + '</code></pre>';
       });
 
-      // Inline code (`code`)
+      // Inline code
       s = s.replace(/`([^`\\n]+)`/g, "<code>$1</code>");
 
       // Headers (###, ##, #)
