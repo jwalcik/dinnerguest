@@ -15,7 +15,18 @@ import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from dinnerguest.observability import (
+    _RECORDED_SPANS,
+    get_recorded_spans,
+    get_structured_logger,
+    log_agent_intent,
+    log_agent_outcome,
+    redact_pii,
+    set_trace_context,
+    start_span,
+)
+
+logger = get_structured_logger(__name__)
 
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -784,13 +795,76 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
 
 
 def _execute_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[str, Any]:
-    # 0. Attempt LLM Agent execution via Google GenAI / Vertex AI if active
-    llm_result = _try_gemini_agent_turn(user_msg, session_id, trace_id)
-    if llm_result is not None:
-        return llm_result
+    _RECORDED_SPANS.set([])
+    set_trace_context(trace_id=trace_id, session_id=session_id)
+    turn_t0 = time.perf_counter()
 
-    # 1. Deterministic Agent Pipeline Fallback
-    return _execute_deterministic_agent_turn(user_msg, session_id, trace_id)
+    with start_span(
+        "agent.execute_turn",
+        attributes={"session_id": session_id, "user_message": redact_pii(user_msg)},
+        trace_id=trace_id,
+        session_id=session_id,
+    ):
+        log_agent_intent(
+            action="agent.execute_turn",
+            intent_description=f"Process user turn: {redact_pii(user_msg)}",
+            args={"user_msg": redact_pii(user_msg)},
+            session_id=session_id,
+            trace_id=trace_id,
+        )
+
+        # 0. Attempt LLM Agent execution via Google GenAI / Vertex AI if active
+        result = _try_gemini_agent_turn(user_msg, session_id, trace_id)
+        if result is None:
+            # 1. Deterministic Agent Pipeline Fallback
+            result = _execute_deterministic_agent_turn(user_msg, session_id, trace_id)
+
+        # Emit structured Intent vs. Outcome logs and child spans for recorded tool events
+        current_thought = "Execute culinary tool"
+        for ev in result.get("events", []):
+            ev_type = ev.get("type")
+            if ev_type == "thought":
+                current_thought = ev.get("text", current_thought)
+            elif ev_type == "tool_call":
+                t_name = ev.get("tool", "unknown_tool")
+                t_args = ev.get("args", {})
+                log_agent_intent(
+                    action=t_name,
+                    intent_description=current_thought,
+                    args=t_args,
+                    session_id=session_id,
+                    trace_id=trace_id,
+                )
+            elif ev_type == "tool_result":
+                t_name = ev.get("tool", "unknown_tool")
+                t_res = ev.get("result")
+                with start_span(
+                    f"tool.{t_name}",
+                    attributes={"tool.name": t_name, "tool.args": ev.get("args", {})},
+                    trace_id=trace_id,
+                    session_id=session_id,
+                ):
+                    log_agent_outcome(
+                        action=t_name,
+                        status="ERROR" if (isinstance(t_res, dict) and "error" in t_res) else "SUCCESS",
+                        outcome_summary={"result_type": type(t_res).__name__},
+                        duration_ms=round((time.perf_counter() - turn_t0) * 1000.0, 3),
+                        session_id=session_id,
+                        trace_id=trace_id,
+                    )
+
+        turn_ms = (time.perf_counter() - turn_t0) * 1000.0
+        log_agent_outcome(
+            action="agent.execute_turn",
+            status="SUCCESS",
+            outcome_summary={"reply_length": len(result.get("reply", "")), "event_count": len(result.get("events", []))},
+            duration_ms=turn_ms,
+            session_id=session_id,
+            trace_id=trace_id,
+        )
+
+    result["spans"] = get_recorded_spans()
+    return result
 
 
 def _format_updated_menu_reply(

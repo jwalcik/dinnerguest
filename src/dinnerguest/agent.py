@@ -26,6 +26,7 @@ if "GOOGLE_CLOUD_LOCATION" not in os.environ:
     os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 
 from dinnerguest.agents.menu_agent import MenuPlanningAgent
+from dinnerguest.observability import traced_tool_call
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.grocery_tool import GroceryListAggregatorTool
 from dinnerguest.tools.menu_store import EventMenuStore
@@ -73,14 +74,21 @@ def find_recipes_by_on_hand_ingredients(
         A dictionary containing matching recipes, matched/substituted/missing ingredients,
         unused user ingredients, total match count N, has_more flag, and pantry staple follow-up questions.
     """
-    result = _pantry_search_tool.search_recipes(
-        on_hand_ingredients=ingredients,
-        category=category,
-        max_missing=max_missing,
-        page=page,
-        page_size=5,
-    )
-    return result.to_dict()
+    with traced_tool_call(
+        "find_recipes_by_on_hand_ingredients",
+        "Search recipes matching on-hand pantry ingredients and evaluate substitutions",
+        {"ingredients": ingredients, "category": category, "max_missing": max_missing, "page": page},
+    ) as ctx:
+        result = _pantry_search_tool.search_recipes(
+            on_hand_ingredients=ingredients,
+            category=category,
+            max_missing=max_missing,
+            page=page,
+            page_size=5,
+        )
+        out = result.to_dict()
+        ctx["result_summary"] = {"total_matches_count": out.get("total_matches_count", 0)}
+        return out
 
 
 def check_allergens_for_ingredients(ingredients: List[str]) -> Dict[str, Any]:
@@ -96,8 +104,15 @@ def check_allergens_for_ingredients(ingredients: List[str]) -> Dict[str, Any]:
     Returns:
         Structured allergen report with detected allergens, safe flags, and guest advisory notices.
     """
-    report = _allergen_checker.check_recipe_ingredients(ingredients)
-    return report.to_dict()
+    with traced_tool_call(
+        "check_allergens_for_ingredients",
+        "Run deterministic FDA FALCPA Big 9 allergen screening on ingredients",
+        {"ingredients": ingredients},
+    ) as ctx:
+        report = _allergen_checker.check_recipe_ingredients(ingredients)
+        out = report.to_dict()
+        ctx["result_summary"] = {"has_allergens": out.get("has_allergens"), "unique_allergens": out.get("unique_allergens")}
+        return out
 
 
 def scale_recipe_servings(
@@ -121,13 +136,20 @@ def scale_recipe_servings(
     Returns:
         Scaled recipe quantities formatted as fractions, scale factor, and culinary warnings.
     """
-    result = _recipe_scaler.scale_recipe(
-        recipe_title=recipe_title,
-        ingredients=ingredients,
-        original_servings=original_servings,
-        target_servings=target_servings,
-    )
-    return result.to_dict()
+    with traced_tool_call(
+        "scale_recipe_servings",
+        f"Scale '{recipe_title}' from {original_servings} to {target_servings} servings",
+        {"recipe_title": recipe_title, "original_servings": original_servings, "target_servings": target_servings},
+    ) as ctx:
+        result = _recipe_scaler.scale_recipe(
+            recipe_title=recipe_title,
+            ingredients=ingredients,
+            original_servings=original_servings,
+            target_servings=target_servings,
+        )
+        out = result.to_dict()
+        ctx["result_summary"] = {"scale_factor": out.get("scale_factor"), "warning_count": len(out.get("warnings", []))}
+        return out
 
 
 def generate_grocery_list(
@@ -150,8 +172,15 @@ def generate_grocery_list(
         Shopping list with combined quantities, aisle groupings, source recipe attribution,
         and total item count.
     """
-    result = _grocery_tool.generate(recipe_ingredient_lists)
-    return result.to_dict()
+    with traced_tool_call(
+        "generate_grocery_list",
+        "Aggregate and categorize ingredients across recipes into supermarket aisles",
+        {"recipe_count": len(recipe_ingredient_lists)},
+    ) as ctx:
+        result = _grocery_tool.generate(recipe_ingredient_lists)
+        out = result.to_dict()
+        ctx["result_summary"] = {"item_count": len(out.get("items", []))}
+        return out
 
 
 def search_recipes_by_vibe(
@@ -181,8 +210,15 @@ def search_recipes_by_vibe(
     if protein:
         filters["protein"] = protein
 
-    results = _vibe_tool.search_by_vibe(vibe_or_craving, filters=filters, limit=limit)
-    return [r.to_dict() for r in results]
+    with traced_tool_call(
+        "search_recipes_by_vibe",
+        f"Semantic vibe/recipe search for '{vibe_or_craving}'",
+        {"vibe_or_craving": vibe_or_craving, "filters": filters, "limit": limit},
+    ) as ctx:
+        results = _vibe_tool.search_by_vibe(vibe_or_craving, filters=filters, limit=limit)
+        out = [r.to_dict() for r in results]
+        ctx["result_summary"] = {"matched_count": len(out), "top_title": out[0]["title"] if out else None}
+        return out
 
 
 def save_event_menu(
@@ -213,15 +249,22 @@ def save_event_menu(
         Structured event plan summary with scaled dishes, consolidated allergens,
         and diet-safe course indicators.
     """
-    summary = _menu_agent.plan_and_save_event_menu(
-        name=name,
-        guest_count=guest_count,
-        dishes=dishes,
-        theme=theme,
-        notes=notes,
-        auto_scale=True,
-    )
-    return summary.to_dict()
+    with traced_tool_call(
+        "save_event_menu",
+        f"Save and scale event menu '{name}' for {guest_count} guests",
+        {"name": name, "guest_count": guest_count, "dish_count": len(dishes)},
+    ) as ctx:
+        summary = _menu_agent.plan_and_save_event_menu(
+            name=name,
+            guest_count=guest_count,
+            dishes=dishes,
+            theme=theme,
+            notes=notes,
+            auto_scale=True,
+        )
+        out = summary.to_dict()
+        ctx["result_summary"] = {"name": out.get("name"), "dish_count": out.get("dish_count")}
+        return out
 
 
 def get_event_menu(name_or_id: str) -> Dict[str, Any]:
@@ -233,10 +276,18 @@ def get_event_menu(name_or_id: str) -> Dict[str, Any]:
     Returns:
         The saved event menu details, courses, scaled ingredients, and allergen summary.
     """
-    summary = _menu_agent.get_event_menu(name_or_id)
-    if not summary:
-        return {"error": f"No saved menu found for '{name_or_id}'."}
-    return summary.to_dict()
+    with traced_tool_call(
+        "get_event_menu",
+        f"Recall saved event menu '{name_or_id}'",
+        {"name_or_id": name_or_id},
+    ) as ctx:
+        summary = _menu_agent.get_event_menu(name_or_id)
+        if not summary:
+            ctx["result_summary"] = {"found": False}
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = summary.to_dict()
+        ctx["result_summary"] = {"found": True, "name": out.get("name")}
+        return out
 
 
 def list_event_menus() -> List[Dict[str, Any]]:
@@ -246,7 +297,10 @@ def list_event_menus() -> List[Dict[str, Any]]:
         A list of event summaries including event name, guest count, theme, dishes,
         and allergen profiles.
     """
-    return _menu_agent.list_saved_menus()
+    with traced_tool_call("list_event_menus", "List all saved event menus in persistent storage", {}) as ctx:
+        menus = _menu_agent.list_saved_menus()
+        ctx["result_summary"] = {"menu_count": len(menus)}
+        return menus
 
 
 def generate_grocery_list_for_menu(name_or_id: str) -> Dict[str, Any]:
@@ -261,10 +315,18 @@ def generate_grocery_list_for_menu(name_or_id: str) -> Dict[str, Any]:
     Returns:
         Aggregated grocery list grouped by supermarket aisle.
     """
-    grocery_list = _menu_agent.generate_menu_grocery_list(name_or_id)
-    if not grocery_list:
-        return {"error": f"No saved menu found for '{name_or_id}'."}
-    return grocery_list.to_dict()
+    with traced_tool_call(
+        "generate_grocery_list_for_menu",
+        f"Generate consolidated supermarket grocery list for event '{name_or_id}'",
+        {"name_or_id": name_or_id},
+    ) as ctx:
+        grocery_list = _menu_agent.generate_menu_grocery_list(name_or_id)
+        if not grocery_list:
+            ctx["result_summary"] = {"found": False}
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = grocery_list.to_dict()
+        ctx["result_summary"] = {"found": True, "item_count": len(out.get("items", []))}
+        return out
 
 
 def update_event_menu_dish(

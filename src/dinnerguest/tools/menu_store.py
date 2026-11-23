@@ -16,10 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dinnerguest.observability import get_structured_logger, redact_pii
 from dinnerguest.tools.allergen_tool import AllergenChecker
 from dinnerguest.tools.scaler_tool import RecipeScaler
 
-logger = logging.getLogger(__name__)
+logger = get_structured_logger(__name__)
 
 
 def _slugify(text: str) -> str:
@@ -301,11 +302,11 @@ class EventMenuStore:
         created_at = existing_raw.get("created_at", now_iso) if existing_raw else now_iso
 
         menu = EventMenu(
-            name=name,
+            name=redact_pii(name),
             guest_count=guest_count,
             event_id=event_id,
-            theme=theme,
-            notes=notes,
+            theme=redact_pii(theme) if theme else None,
+            notes=redact_pii(notes) if notes else None,
             dishes=menu_dishes,
             created_at=created_at,
             updated_at=now_iso,

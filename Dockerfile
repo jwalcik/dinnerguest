@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         "google-cloud-firestore>=2.13.0" \
         "google-cloud-aiplatform>=1.40.0" \
         "google-genai>=0.1.0" \
+        "opentelemetry-api>=1.20.0" \
+        "opentelemetry-sdk>=1.20.0" \
         "pg8000>=1.30.0"
 
 # Copy project definitions, documentation, source code, and test fixtures

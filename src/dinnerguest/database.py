@@ -14,7 +14,9 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from dinnerguest.observability import get_structured_logger, start_span
+
+logger = get_structured_logger(__name__)
 
 # Cloud SQL Connection parameters
 CLOUD_SQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME")
