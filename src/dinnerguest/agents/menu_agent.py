@@ -345,24 +345,190 @@ class MenuPlanningAgent:
 # ADK Agent Definition
 import os
 from dinnerguest.adk import Agent
+from dinnerguest.tools.vibe_search_tool import VibeSearchTool
 
-MENU_AGENT_INSTRUCTION = """You are the Menu & Event Planning Sub-Agent for Dinnerguest.
-Your role is to coordinate multi-course meal planning, guest serving calculations,
-cross-recipe allergen safety, and grocery list generation for events and dinner parties.
+MENU_AGENT_INSTRUCTION = """You are the Menu & Event Planning Sub-Agent (MenuAgent) for Dinnerguest.
+Your role is to coordinate multi-course meal and event planning, interactive gathering of event details,
+guest serving scaling, cross-recipe allergen safety, persistent menu recall, and grocery list generation.
 
 Guidelines:
-1. Help users design balanced multi-course menus (Appetizer, Main, Side, Dessert).
-2. Save event menus using `save_event_menu` with their guest count and theme.
-3. Automatically scale dishes to the guest count and report allergen safety.
-4. When requested, generate consolidated grocery lists for the saved event menus.
+1. Interactive Event Discovery (Never Assume Unstated Details):
+   - Guest Count: If a specific number of guests is NOT specified by the user (e.g., "Help me plan a menu for game night", "I'm having some friends over for game night, help me plan a menu", or "I need to plan a menu for an upcoming party"), DO NOT assume a default guest count (never silently default to 6). Ask the user how many guests they are expecting as part of the planning process.
+   - Courses & Dishes: The suggested traditional courses for major holidays (such as Thanksgiving Dinner or Easter Lunch) are fine to propose directly. However, if a major holiday is not explicitly specified and the user has not stated what courses/dishes they want, ask the user about the number and types of dishes or courses to include in the plan (e.g., Appetizer, Main, Side, Dessert, or game-night finger foods/snacks).
+   - Arbitrary Event Name / Label: To save an event and recall its menu later, the event needs a name or label. Allow users to provide any arbitrary label (e.g., "Saturday Gamenight", "Game Night", "Book Club Dinner") rather than restricting them to pre-planned holiday names. If they haven't provided a label yet, ask what they would like to name/label the event or let them rename it at any time.
+
+2. Building & Saving the Event Menu:
+   - Use `search_recipes_by_vibe` to find recipes matching each requested course or dish type.
+   - Once the guest count and courses/dishes are known, call `save_event_menu` with the event name/label, `guest_count`, and selected `dishes`. Every dish is automatically scaled to the target guest count and screened for FDA FALCPA Big 9 allergens.
+
+3. Multi-Turn Menu Modifications & Guest Count Updates:
+   - Maintain context across follow-up turns for the active event menu.
+   - Updating Guest Count: If the user changes or clarifies the number of guests during planning or after a menu is created (e.g., "It's going to be 12 guests, not 6" or "Scale to 12 guests"), update the guest count for the event and call `update_event_menu_dish(action="scale", new_guest_count=12)` if a menu is already saved.
+   - Swapping / Replacing a Dish: When the user asks to swap or replace a menu item (e.g., "Replace the Apple Crisp with a pecan pie" or "Let's replace the meatballs with some sort of grilled chicken dish"), call `update_event_menu_dish(action="replace", target_dish_or_course=..., dish_query=...)` using a clean culinary search query (e.g., "pecan pie", "grilled chicken").
+   - Adding or Removing a Course: When the user asks to add an additional course/menu item (e.g., "Add a deviled egg appetizer") or remove one (e.g., "Remove the stuffing"), call `update_event_menu_dish` with `action="add"` or `action="remove"`.
+   - Renaming the Event Label: When the user provides or changes the event's name/label (e.g., "Okay, let's call this event 'Saturday Gamenight'"), call `update_event_menu_dish(action="rename", dish_query="Saturday Gamenight")`.
+   - Cross-Course Dietary Checks: If the user swaps a dish because a guest avoids a specific ingredient (e.g., "One of the folks coming doesn't eat beef"), proactively check the remaining courses on the menu and alert the user if any other planned dish also contains that ingredient.
+
+4. Event Recall, Allergen Safety & Grocery Lists:
+   - When the user asks to recall a previous event (e.g., "What did we plan for Saturday Gamenight?"), call `get_event_menu` or `list_event_menus`.
+   - Always summarize the consolidated allergen profile across all courses and highlight which courses are allergen-free.
+   - When requested, call `generate_grocery_list_for_menu` to produce a consolidated, aisle-organized shopping list for the entire scaled menu.
 """
+
+
+def save_event_menu_adk(
+    name: str,
+    guest_count: int,
+    dishes: List[Dict[str, Any]],
+    theme: str = "",
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Saves and scales a multi-course event menu to persistent storage."""
+    agent = MenuPlanningAgent()
+    return agent.plan_and_save_event_menu(
+        name=name,
+        guest_count=guest_count,
+        dishes=dishes,
+        theme=theme,
+        notes=notes,
+        auto_scale=True,
+    ).to_dict()
+
+
+def get_event_menu_adk(name_or_id: str) -> Dict[str, Any]:
+    """Recalls a previously saved event menu by its name or label."""
+    agent = MenuPlanningAgent()
+    summary = agent.get_event_menu(name_or_id)
+    if not summary:
+        return {"error": f"No saved menu found for '{name_or_id}'."}
+    return summary.to_dict()
+
+
+def list_event_menus_adk() -> List[Dict[str, Any]]:
+    """Lists all saved event menus in persistent storage."""
+    agent = MenuPlanningAgent()
+    return agent.list_saved_menus()
+
+
+def generate_grocery_list_for_menu_adk(name_or_id: str) -> Dict[str, Any]:
+    """Generates a consolidated, aisle-grouped shopping list for a saved event menu."""
+    agent = MenuPlanningAgent()
+    glist = agent.generate_menu_grocery_list(name_or_id)
+    if not glist:
+        return {"error": f"No saved menu found for '{name_or_id}'."}
+    return glist.to_dict()
+
+
+def update_event_menu_dish_adk(
+    name_or_id: str,
+    action: str,
+    dish_query: str = "",
+    target_dish_or_course: Optional[str] = None,
+    course: Optional[str] = None,
+    new_guest_count: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Modifies an existing event menu (replace a dish, add a course, remove a dish, scale guest count, or rename event)."""
+    agent = MenuPlanningAgent()
+    vibe_tool = VibeSearchTool()
+    act = action.strip().lower()
+
+    if act == "rename":
+        new_label = (dish_query or target_dish_or_course or "").strip()
+        if not new_label:
+            return {"error": "No new name provided for rename."}
+        summary = agent.rename_event_menu(name_or_id, new_label)
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = summary.to_dict()
+        out["previous_name"] = name_or_id
+        return out
+
+    if act == "scale" and new_guest_count:
+        summary = agent.scale_event_menu(name_or_id, int(new_guest_count))
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        return summary.to_dict()
+
+    if act == "remove" and target_dish_or_course:
+        res = agent.remove_dish_from_event_menu(name_or_id, target_dish_or_course)
+        if not res:
+            return {"error": f"Could not remove '{target_dish_or_course}' from '{name_or_id}'."}
+        summary, removed_title = res
+        out = summary.to_dict()
+        out["removed_dish"] = removed_title
+        return out
+
+    candidates = vibe_tool.search_by_vibe(dish_query, limit=5) if dish_query else []
+    if target_dish_or_course and candidates:
+        target_words = [w.rstrip("s") for w in target_dish_or_course.lower().split() if len(w) >= 3]
+        filtered = [
+            c for c in candidates
+            if not (target_words and all(w in c.title.lower() for w in target_words))
+        ]
+        if filtered:
+            candidates = filtered
+
+    if candidates:
+        best = candidates[0]
+        new_dish_dict = {
+            "recipe_id": best.recipe_id,
+            "recipe_title": best.title,
+            "course": course or "Side",
+            "original_servings": best.servings,
+            "ingredients": best.ingredients,
+        }
+    else:
+        new_dish_dict = {
+            "recipe_id": "custom_dish",
+            "recipe_title": dish_query.strip().title() or "Custom Dish",
+            "course": course or "Side",
+            "original_servings": 4,
+            "ingredients": [dish_query.strip()] if dish_query.strip() else [],
+        }
+
+    if act == "replace":
+        if not course:
+            new_dish_dict["course"] = None
+        res = agent.replace_dish_in_event_menu(
+            name_or_id=name_or_id,
+            target_dish_or_course=target_dish_or_course or "",
+            new_dish=new_dish_dict,
+        )
+        if not res:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        summary, replaced_title = res
+        out = summary.to_dict()
+        out["replaced_dish"] = replaced_title
+        out["new_dish"] = candidates[0].to_dict() if candidates else new_dish_dict
+        return out
+
+    if act == "add":
+        summary = agent.add_dish_to_event_menu(name_or_id=name_or_id, new_dish=new_dish_dict)
+        if not summary:
+            return {"error": f"No saved menu found for '{name_or_id}'."}
+        out = summary.to_dict()
+        out["added_dish"] = candidates[0].to_dict() if candidates else new_dish_dict
+        return out
+
+    return {"error": f"Unsupported action '{action}'."}
 
 
 menu_agent = Agent(
     name="MenuAgent",
     model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
-    description="Specialized sub-agent for multi-course meal planning, serving scaling, allergen safety, and event persistence.",
+    description=(
+        "Specialized sub-agent for planning menus for events, parties, holidays, game nights, and group meals. "
+        "Handles interactive discovery of guest count, course structure, and custom event labels; "
+        "modifying menus (replacing/adding/removing dishes, changing guest counts, renaming events); "
+        "recalling saved menus; and generating event grocery lists."
+    ),
     instruction=MENU_AGENT_INSTRUCTION,
-    tools=[],
+    tools=[
+        save_event_menu_adk,
+        get_event_menu_adk,
+        list_event_menus_adk,
+        generate_grocery_list_for_menu_adk,
+        update_event_menu_dish_adk,
+    ],
 )
 

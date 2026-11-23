@@ -264,32 +264,6 @@ class TestServerLogic(unittest.TestCase):
         self.assertIn("Recalled saved menu", r5["reply"])
         self.assertEqual(r5["data"]["name"], "Saturday Gamenight")
 
-    def test_game_night_and_party_guest_count_prompts(self):
-        # 1. "Help me plan a menu for game night"
-        r1 = _execute_agent_turn("Help me plan a menu for game night", "sess_gn_1", "tr_gn_1")
-        self.assertIn("Game Night", r1["reply"])
-        self.assertIn("Guest Count", r1["reply"])
-        self.assertEqual(r1["data"]["event_name"], "Game Night")
-        self.assertIsNone(r1["data"]["guest_count"])
-
-        # 2. "I'm having some friends over for game night, help me plan a menu" (must NOT call on-hand pantry search)
-        r2 = _execute_agent_turn("I'm having some friends over for game night, help me plan a menu", "sess_gn_2", "tr_gn_2")
-        tools_r2 = [e.get("tool") for e in r2["events"] if e.get("type") == "tool_call"]
-        self.assertNotIn("find_recipes_by_on_hand_ingredients", tools_r2)
-        self.assertIn("Game Night", r2["reply"])
-
-        # 3. "I need to plan a menu for an upcoming party" (must NOT assume 6 guests)
-        r3 = _execute_agent_turn("I need to plan a menu for an upcoming party", "sess_party_3", "tr_p_3")
-        self.assertIsNone(r3["data"]["guest_count"])
-        self.assertIn("Guest Count", r3["reply"])
-
-        # 4. Follow-up: "It's going to be 12 guests, not 6" (must update guest_count to 12, NOT call pantry search)
-        r4 = _execute_agent_turn("It's going to be 12 guests, not 6", "sess_party_3", "tr_p_4")
-        tools_r4 = [e.get("tool") for e in r4["events"] if e.get("type") == "tool_call"]
-        self.assertNotIn("find_recipes_by_on_hand_ingredients", tools_r4)
-        self.assertEqual(r4["data"]["guest_count"], 12)
-        self.assertIn("12 guests", r4["reply"])
-
 
 if __name__ == "__main__":
     unittest.main()

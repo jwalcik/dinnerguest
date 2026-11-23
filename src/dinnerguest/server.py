@@ -698,9 +698,16 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             update_event_menu_dish,
             DINNERGUEST_INSTRUCTION,
         )
+        from dinnerguest.agents.menu_agent import MENU_AGENT_INSTRUCTION
+        from dinnerguest.agents.on_hand_agent import ON_HAND_AGENT_INSTRUCTION
+        from dinnerguest.agents.vibe_agent import VIBE_AGENT_INSTRUCTION
 
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        model_name = os.getenv("GEN_MODEL", "gemini-3.8-flash")
+        configured_model = os.getenv("GEN_MODEL", "gemini-3.8-flash")
+        candidate_models = [configured_model]
+        for fallback_model in ("gemini-2.5-flash", "gemini-2.0-flash"):
+            if fallback_model not in candidate_models:
+                candidate_models.append(fallback_model)
 
         client = genai.Client(vertexai=True, project=project, location=location)
         available_tools = [
@@ -717,26 +724,58 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         ]
         tool_map = {fn.__name__: fn for fn in available_tools}
 
-        events: List[Dict[str, Any]] = [
-            {"type": "thought", "text": f"Dinnerguest LLM agent active ({model_name}). Processing query with tool orchestrator..."}
-        ]
-
-        session = _SESSIONS.get(session_id, {})
+        session = _SESSIONS.setdefault(session_id, {
+            "vibe_state": None,
+            "active_menu_name": None,
+            "menu_planning_state": None,
+            "chat_history": [],
+            "turn_count": 0,
+        })
         active_menu = session.get("active_menu_name")
-        sys_instruction = DINNERGUEST_INSTRUCTION
-        if active_menu:
-            sys_instruction += f"\n\n[Active Session Context: The user is currently planning the event menu '{active_menu}'. If they ask to replace a dish, add a course, remove a dish, scale guests, or generate a grocery list, apply it to '{active_menu}'.]"
-
-        chat = client.chats.create(
-            model=model_name,
-            config=types.GenerateContentConfig(
-                system_instruction=sys_instruction,
-                tools=available_tools,
-                temperature=0.2,
-            ),
+        sys_instruction = (
+            f"{DINNERGUEST_INSTRUCTION}\n\n"
+            f"### Specialized Sub-Agent Instructions\n"
+            f"#### MenuAgent\n{MENU_AGENT_INSTRUCTION}\n\n"
+            f"#### OnHandAgent\n{ON_HAND_AGENT_INSTRUCTION}\n\n"
+            f"#### VibeAgent\n{VIBE_AGENT_INSTRUCTION}"
         )
+        if active_menu:
+            sys_instruction += (
+                f"\n\n[Active Session Context: The user is currently working on the event menu '{active_menu}'. "
+                f"If they ask to replace a dish, add a course, remove a dish, change guest count, rename the event, or generate a grocery list, apply it to '{active_menu}'.]"
+            )
 
-        response = chat.send_message(user_msg)
+        history = list(session.get("chat_history") or [])
+        chat = None
+        response = None
+        active_model_name = configured_model
+
+        for model_candidate in candidate_models:
+            try:
+                chat = client.chats.create(
+                    model=model_candidate,
+                    history=history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=sys_instruction,
+                        tools=available_tools,
+                        temperature=0.2,
+                    ),
+                )
+                response = chat.send_message(user_msg)
+                active_model_name = model_candidate
+                break
+            except Exception as model_err:
+                logger.warning("Model '%s' invocation failed (%s), trying next fallback model...", model_candidate, model_err)
+                chat = None
+                response = None
+
+        if chat is None or response is None:
+            return None
+
+        events: List[Dict[str, Any]] = [
+            {"type": "thought", "text": f"Dinnerguest LLM agent active ({active_model_name}). Processing query with multi-agent instructions and tool orchestrator..."}
+        ]
+        last_tool_result: Any = None
 
         # Loop through tool execution turns if model invokes function calls
         for _ in range(5):
@@ -762,6 +801,11 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                 else:
                     tool_result = {"error": f"Tool '{call_name}' not recognized."}
 
+                last_tool_result = tool_result
+                if isinstance(tool_result, dict) and call_name in ("save_event_menu", "update_event_menu_dish", "get_event_menu"):
+                    if tool_result.get("name"):
+                        session["active_menu_name"] = tool_result["name"]
+
                 events.append({
                     "type": "tool_result",
                     "tool": call_name,
@@ -780,14 +824,22 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             else:
                 break
 
+        try:
+            session["chat_history"] = list(chat.get_history())
+        except Exception:
+            pass
+
         reply_text = getattr(response, "text", "") or ""
         if reply_text.strip():
-            return {
+            out_payload: Dict[str, Any] = {
                 "reply": reply_text.strip(),
                 "session_id": session_id,
                 "trace_id": trace_id,
                 "events": events,
             }
+            if last_tool_result is not None:
+                out_payload["data"] = last_tool_result
+            return out_payload
     except Exception as exc:
         logger.info("Vertex AI LLM agent pass skipped (%s); executing deterministic culinary pipeline", exc)
         return None
@@ -953,72 +1005,25 @@ def _extract_menu_rename_intent(user_msg: str) -> Optional[str]:
     return None
 
 
-def _extract_guest_count_from_text(user_msg: str, allow_bare_number: bool = False) -> Optional[int]:
-    """Extracts target guest count while ignoring negated numbers (e.g. '12 guests, not 6')."""
-    cleaned = re.sub(
-        r"\b(?:not|instead\s+of|rather\s+than|from)\s+\d+(?:\s*(?:guests|people|persons|servings))?\b",
-        "",
-        user_msg.lower(),
-        flags=re.IGNORECASE,
-    )
-    patterns = [
-        r"\b(\d+)\s*(?:guests|people|persons|folks|friends|attendees|servings)\b",
-        r"\b(?:for|be|have|expecting|hosting|feed|feeding|of\s+us)\s+(\d+)\b",
-    ]
-    for pat in patterns:
-        m = re.search(pat, cleaned)
-        if m and int(m.group(1)) > 0:
-            return int(m.group(1))
-    if allow_bare_number:
-        m_bare = re.fullmatch(r"\s*(\d+)\s*(?:guests|people|servings)?\s*[.?!]*", cleaned)
-        if m_bare and int(m_bare.group(1)) > 0:
-            return int(m_bare.group(1))
-    return None
-
-
 def _extract_custom_event_label(user_msg: str) -> Optional[str]:
-    """Extracts an inline custom event name from a planning prompt if provided (e.g. 'for game night', 'called Saturday Gamenight')."""
-    text = user_msg.strip()
+    """Extracts an inline custom event name from a planning prompt if provided (e.g. 'called Saturday Gamenight')."""
     m = re.search(
-        r"\b(?:called|named|labeled|titled)\s+[\"“']?([A-Za-z0-9\s'&-]{3,40})[\"”']?",
-        text,
+        r"\b(?:called|named|labeled|titled|for\s+our|for\s+my)\s+[\"“']?([A-Za-z0-9\s'&-]{3,40})[\"”']?",
+        user_msg.strip(),
         re.IGNORECASE,
     )
     if m:
         label = m.group(1).strip().strip('"').strip("'").strip("“”").rstrip(".,?!")
-        if label:
+        generic = {"dinner", "lunch", "party", "dinner party", "meal", "guests", "people", "family", "friends", "tonight", "tomorrow"}
+        if label.lower() not in generic:
             return label
-
-    m_quote = re.search(r"[\"“]([^\"”]{3,40})[\"”]", text)
+    m_quote = re.search(r"[\"“]([^\"”]{3,40})[\"”]", user_msg.strip())
     if m_quote:
         return m_quote.group(1).strip()
-
-    # Check for named occasions like "for game night", "for Saturday game night", "for book club", "for Sarah's birthday"
-    m_for = re.search(
-        r"\bfor\s+(?:our\s+|my\s+|a\s+|an\s+)?([A-Za-z0-9\s'&-]{3,35}?)(?:\s*,|\s+help|\s+for\s+\d+|\s+with\s+|\s*[.?!]*$)",
-        text,
-        re.IGNORECASE,
-    )
-    if m_for:
-        cand = m_for.group(1).strip().rstrip(".,?!")
-        cand_lower = cand.lower()
-        generic_phrases = {
-            "dinner", "lunch", "breakfast", "brunch", "supper", "meal", "a meal",
-            "party", "a party", "upcoming party", "an upcoming party", "dinner party",
-            "guests", "people", "friends", "some friends", "my family", "family",
-            "tonight", "tomorrow", "this weekend", "the weekend", "us", "everyone"
-        }
-        if (
-            cand_lower not in generic_phrases
-            and not re.search(r"\b\d+\s*(?:guests|people|servings)?\b", cand_lower)
-            and not cand_lower.startswith(("upcoming ", "an upcoming ", "some "))
-        ):
-            return cand.title() if cand.islower() else cand
-
     return None
 
 
-def _parse_requested_courses_spec(user_msg: str, in_planning_state: bool = False) -> Optional[List[Dict[str, str]]]:
+def _parse_requested_courses_spec(user_msg: str) -> Optional[List[Dict[str, str]]]:
     """Parses explicit course/dish requests from a user message during interactive menu planning.
 
     Returns a list of dicts [{'course': 'Appetizer', 'query': '...'}, ...] if course/dish specifications are present.
@@ -1122,33 +1127,6 @@ def _parse_requested_courses_spec(user_msg: str, in_planning_state: bool = False
             {"course": "Main", "query": default_queries["Main"]},
             {"course": "Dessert", "query": default_queries["Dessert"]},
         ]
-
-    # When in active AWAITING_COURSES state, if user lists 2+ dish/food items (e.g. "wings, sliders, and brownies"),
-    # map them to courses automatically (excluding pure guest-count messages like "It's going to be 12 guests, not 6")
-    if in_planning_state and len(segments) >= 2 and not re.search(r"\b(?:guests|people|not\s+\d+)\b", lower):
-        dish_segments = []
-        for seg in segments:
-            cl = _clean_dish_search_query(
-                re.sub(r"^(?:maybe|how\s+about|let's\s+do|let's\s+have|i\s+want|we\s+want)\s+", "", seg.strip(), flags=re.IGNORECASE)
-            )
-            if cl and len(cl) >= 3:
-                dish_segments.append(cl)
-        if len(dish_segments) >= 2:
-            inferred_specs: List[Dict[str, str]] = []
-            for idx, dq in enumerate(dish_segments):
-                dql = dq.lower()
-                if any(w in dql for w in ("cookie", "cake", "pie", "brownie", "crisp", "sweet", "ice cream", "tart")):
-                    c_type = "Dessert"
-                elif idx == 0 and any(w in dql for w in ("wing", "dip", "chip", "nacho", "deviled", "egg", "bruschetta", "soup", "salad")):
-                    c_type = "Appetizer"
-                elif idx == 0 or (idx == 1 and inferred_specs and inferred_specs[0]["course"] == "Appetizer"):
-                    c_type = "Main"
-                elif idx == len(dish_segments) - 1 and len(dish_segments) >= 3:
-                    c_type = "Dessert"
-                else:
-                    c_type = "Side"
-                inferred_specs.append({"course": c_type, "query": dq})
-            return inferred_specs
 
     return None
 
@@ -1497,15 +1475,11 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
     # 1c. In-progress Interactive Event Menu Course Selection
     plan_state = session.get("menu_planning_state")
     if plan_state and plan_state.get("status") == "AWAITING_COURSES":
-        updated_gc = _extract_guest_count_from_text(user_msg, allow_bare_number=True)
-        if updated_gc is not None:
-            plan_state["guest_count"] = updated_gc
-
         inline_name = _extract_menu_rename_intent(user_msg) or _extract_custom_event_label(user_msg)
         if inline_name:
             plan_state["event_name"] = inline_name
 
-        course_specs = _parse_requested_courses_spec(user_msg, in_planning_state=True)
+        course_specs = _parse_requested_courses_spec(user_msg)
         if course_specs:
             from dinnerguest.agent import _menu_agent
             from dinnerguest.tools.vibe_search_tool import VibeSearchTool
@@ -1564,31 +1538,6 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                 "data": summary.to_dict(),
             }
 
-        # If the user updated the guest count (e.g. "It's going to be 12 guests, not 6") without specifying courses yet
-        if updated_gc is not None:
-            ev_label = plan_state.get("event_name")
-            events.append({
-                "type": "thought",
-                "text": f"Updated planned event guest count to {updated_gc} guests. Awaiting course selection...",
-            })
-            label_prompt = (
-                f" for **\"{ev_label}\"**"
-                if ev_label
-                else " (and let me know what you'd like to **name/label** this event so we can save it)"
-            )
-            reply_text = (
-                f"👥 Got it — I've updated the guest count to **{updated_gc} guests**{label_prompt}!\n\n"
-                "What **number and types of courses/dishes** would you like to include in the plan? "
-                "*(For example: \"An appetizer, a grilled chicken main course, a side dish, and a dessert\" or \"wings, sliders, nachos, and brownies\")*"
-            )
-            return {
-                "reply": reply_text,
-                "session_id": session_id,
-                "trace_id": trace_id,
-                "events": events,
-                "data": plan_state,
-            }
-
     # 1d. Recall or Grocery List for a Previously Saved Named Event Menu
     from dinnerguest.agent import _menu_agent as _global_menu_agent
     all_saved_menus = _global_menu_agent.list_saved_menus()
@@ -1642,21 +1591,13 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
     is_thanksgiving = "thanksgiving" in lower
     is_easter = "easter" in lower
 
-    plan_verbs = ["plan", "planning", "organize", "host", "hosting", "cater", "menu for", "courses", "prepare for", "put together", "friends over", "people over"]
+    plan_verbs = ["plan", "planning", "organize", "host", "hosting", "cater", "menu for", "courses"]
     has_plan_verb = any(v in lower for v in plan_verbs)
-    meal_event_nouns = [
-        "menu", "lunch", "dinner", "brunch", "breakfast", "supper", "meal", "feast",
-        "party", "gathering", "event", "banquet", "game night", "gamenight", "potluck",
-        "cookout", "bbq", "birthday", "anniversary", "book club", "get-together"
-    ]
-    has_meal_event = any(m in lower for m in meal_event_nouns)
+    meal_nouns = ["lunch", "dinner", "brunch", "breakfast", "supper", "meal", "feast", "party", "gathering", "event", "banquet"]
+    has_meal = any(m in lower for m in meal_nouns)
 
-    is_planning_meal = has_plan_verb and has_meal_event
-    is_explicit_event = any(k in lower for k in [
-        "event menu", "dinner party", "party menu", "plan a menu", "plan menu",
-        "menu for", "game night", "gamenight", "3-course", "multi-course",
-        "meal plan", "grocery", "shopping list"
-    ])
+    is_planning_meal = has_plan_verb and has_meal
+    is_explicit_event = any(k in lower for k in ["event menu", "dinner party", "party menu", "3-course", "multi-course", "meal plan", "grocery", "shopping list"])
 
     if is_holiday or is_planning_meal or is_explicit_event:
         from dinnerguest.agent import _menu_agent
@@ -1853,58 +1794,44 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
             }
 
         # 2c. Non-Holiday Multi-Course Meal / Event Planning
-        if "party" in lower or "3-course" in lower or "menu" in lower or "game night" in lower or "gamenight" in lower or is_planning_meal:
+        if "party" in lower or "3-course" in lower or is_planning_meal:
             if "grocery" not in lower and "shopping" not in lower and "list" not in lower:
-                explicit_gc = _extract_guest_count_from_text(user_msg)
+                guest_count = 6
+                m = re.search(r"\b(?:for\s+)?(\d+)\s*(?:guests|people|servings)?", lower)
+                if m and int(m.group(1)) > 0:
+                    guest_count = int(m.group(1))
+
                 custom_label = _extract_menu_rename_intent(user_msg) or _extract_custom_event_label(user_msg)
                 course_specs = _parse_requested_courses_spec(user_msg)
 
                 # If the user has not specified the number/types of courses yet, ask interactively!
                 if course_specs is None:
-                    gc_log = f"for {explicit_gc} guests" if explicit_gc else "(guest count not yet specified)"
                     events.append({
                         "type": "thought",
-                        "text": f"Detected non-holiday meal planning request {gc_log}. Prompting user for guest count, course structure, and event label...",
+                        "text": f"Detected non-holiday meal planning request for {guest_count} guests. Prompting user for course structure and event label...",
                     })
                     plan_state_data = {
                         "status": "AWAITING_COURSES",
-                        "guest_count": explicit_gc,
+                        "guest_count": guest_count,
                         "event_name": custom_label,
                     }
                     session["menu_planning_state"] = plan_state_data
 
-                    if custom_label and explicit_gc:
+                    if custom_label:
                         reply_lines = [
-                            f"🍽️ I'd love to help you plan **\"{custom_label}\"** for **{explicit_gc} guests**!",
+                            f"🍽️ I'd love to help you plan **\"{custom_label}\"** for **{guest_count} guests**!",
                             "",
                             "Before I put the menu together, **how many and what types of courses/dishes** would you like to include?",
-                            "- *Examples*: *\"An appetizer, a grilled chicken main course, two side dishes, and a dessert\"* or *\"wings, sliders, nachos, and brownies\"*.",
+                            "- *Examples*: *\"An appetizer, a grilled chicken main course, two side dishes, and a dessert\"* or *\"3 courses: soup starter, pasta main, and fruit pie\"*.",
                             "- Feel free to share any dietary restrictions or preferences (such as *no beef* or *vegetarian*) as well!",
                         ]
-                    elif custom_label and not explicit_gc:
+                    else:
                         reply_lines = [
-                            f"🍽️ I'd love to help you plan your **\"{custom_label}\"** menu!",
-                            "",
-                            "To put together the right plan, let me know:",
-                            "1. **Guest Count**: How many guests are you expecting?",
-                            "2. **Courses & Dishes**: How many and what types of dishes or courses should we include? *(For example: \"An appetizer, a main course, and a dessert\", or specific dishes like \"wings, sliders, nachos, and brownies\")*",
-                        ]
-                    elif explicit_gc and not custom_label:
-                        reply_lines = [
-                            f"🍽️ I'd love to help you plan your meal for **{explicit_gc} guests**!",
+                            f"🍽️ I'd love to help you plan your meal for **{guest_count} guests**!",
                             "",
                             "To tailor the plan to your event, let me know:",
                             "1. **Courses & Dishes**: How many and what types of dishes/courses should we include? *(For example: \"An appetizer, a grilled chicken main course, a side dish, and a dessert\" or \"3 courses: starter, main, and dessert\")*",
                             "2. **Event Name / Label**: What would you like to call this event *(e.g., \"Saturday Gamenight\", \"Birthday Dinner\")* so we can save and easily recall the menu later?",
-                        ]
-                    else:
-                        reply_lines = [
-                            "🍽️ I'd love to help you plan your upcoming event menu!",
-                            "",
-                            "To tailor the plan to your event, let me know:",
-                            "1. **Guest Count**: How many guests are you expecting?",
-                            "2. **Courses & Dishes**: How many and what types of dishes/courses should we include? *(For example: \"An appetizer, a main course, a side dish, and a dessert\")*",
-                            "3. **Event Name / Label**: What would you like to call this event *(e.g., \"Saturday Gamenight\", \"Birthday Party\")* so we can save and easily recall the menu later?",
                         ]
 
                     return {
@@ -1916,7 +1843,6 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
                     }
 
                 # User provided course specifications inline — build the custom menu dynamically
-                guest_count = explicit_gc or 6
                 event_name = custom_label or "Dinner Party"
                 events.append({
                     "type": "thought",
@@ -2037,10 +1963,8 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
         }
 
     # 4. Recipe / Menu Scaling Request
-    parsed_gc = _extract_guest_count_from_text(user_msg)
-    has_guest_change = parsed_gc is not None and any(w in lower for w in ("guests", "people", "folks"))
-    if "scale" in lower or "servings" in lower or "double" in lower or "triple" in lower or (session.get("active_menu_name") and has_guest_change):
-        target = parsed_gc or 8
+    if "scale" in lower or "servings" in lower or "double" in lower or "triple" in lower:
+        target = 8
         m = re.search(r"\b(?:to|for)\s+(\d+)\s*(?:servings|people|guests)?", lower)
         if m:
             target = int(m.group(1))
@@ -2097,21 +2021,9 @@ def _execute_deterministic_agent_turn(user_msg: str, session_id: str, trace_id: 
         }
 
     # 5. On-Hand Ingredients Request
-    pantry_phrases = [
-        "i have", "i've got", "ive got", "we have", "we've got", "have some", "got some",
-        "in my fridge", "in my pantry", "on hand", "make with", "cook with", "ingredients"
-    ]
-    non_ingredient_sentence_words = {
-        "guests", "people", "party", "menu", "event", "game night", "gamenight",
-        "friends over", "plan", "planning", "going to be"
-    }
-    has_pantry_phrase = any(p in lower for p in pantry_phrases)
-    is_bare_comma_list = (
-        "," in user_msg
-        and not any(w in lower for w in non_ingredient_sentence_words)
-        and not bool(re.match(r"^(?:okay|ok|yes|no|sure|hey|well|actually|so|please|let's|lets|it's|its)\b", lower))
-    )
-    if has_pantry_phrase or is_bare_comma_list:
+    pantry_clues = ["have", "fridge", "pantry", "make with", "cook with", "ingredients", "got"]
+    is_conversational_prefix = bool(re.match(r"^(?:okay|ok|yes|no|sure|hey|well|actually|so|please|let's|lets)\s*,", lower))
+    if any(k in lower for k in pantry_clues) or ("," in user_msg and not is_conversational_prefix):
         events.append({"type": "thought", "text": "Analyzing user pantry ingredients, matching culinary substitutions, and checking missing staples..."})
         from dinnerguest.agents.on_hand_agent import OnHandRecommendationAgent
         on_hand_agent = OnHandRecommendationAgent()

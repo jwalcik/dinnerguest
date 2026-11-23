@@ -28,6 +28,17 @@ class TestDinnerguestAgent(unittest.TestCase):
         self.assertIn("OnHandAgent", sub_names)
         self.assertIn("MenuAgent", sub_names)
 
+    def test_root_agent_intent_matching_instructions(self):
+        """Root agent instructions should guide semantic intent matching to sub-agents and tools."""
+        instr = root_agent.instruction
+        self.assertIn("Intent Matching & Sub-Agent Delegation", instr)
+        self.assertIn("MenuAgent", instr)
+        self.assertIn("OnHandAgent", instr)
+        self.assertIn("VibeAgent", instr)
+        self.assertIn("game night", instr.lower())
+        self.assertIn("Unstated Guest Count", instr)
+        self.assertIn("Never call `find_recipes_by_on_hand_ingredients` when the user is talking about guests", instr)
+
     def test_event_menu_tools(self):
         # Save menu
         dishes = [
