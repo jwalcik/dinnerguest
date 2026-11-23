@@ -14,6 +14,7 @@ check_prerequisites
 log_step "Deploying Google Cloud SQL Component (PostgreSQL + pgvector)"
 enable_service "sqladmin.googleapis.com"
 enable_service "servicenetworking.googleapis.com"
+ensure_db_password_secret
 
 # 1. Check or Create Cloud SQL Instance
 log_info "Checking Cloud SQL instance '$CLOUD_SQL_INSTANCE'..."
@@ -45,12 +46,17 @@ else
     log_success "Created database '$CLOUD_SQL_DB'"
 fi
 
-# 3. Check or Create Database User
+# 3. Check or Create Database User (synced with Secret Manager password)
 log_info "Checking database user '$CLOUD_SQL_USER'..."
 if gcloud sql users list --instance="$CLOUD_SQL_INSTANCE" --project="$PROJECT_ID" --format="value(name)" | grep -w -q "$CLOUD_SQL_USER"; then
-    log_info "User '$CLOUD_SQL_USER' already exists."
+    log_info "User '$CLOUD_SQL_USER' already exists. Syncing password from Secret Manager ('$CLOUD_SQL_PASSWORD_SECRET')..."
+    gcloud sql users set-password "$CLOUD_SQL_USER" \
+        --instance="$CLOUD_SQL_INSTANCE" \
+        --password="$CLOUD_SQL_PASSWORD" \
+        --project="$PROJECT_ID" \
+        --quiet
 else
-    log_step "Creating database user '$CLOUD_SQL_USER'..."
+    log_step "Creating database user '$CLOUD_SQL_USER' with password from Secret Manager..."
     gcloud sql users create "$CLOUD_SQL_USER" \
         --instance="$CLOUD_SQL_INSTANCE" \
         --password="$CLOUD_SQL_PASSWORD" \

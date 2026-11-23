@@ -693,7 +693,11 @@ def connect_postgres(args: argparse.Namespace) -> Any:
     # Standalone connection attempt
     db_name = os.getenv("CLOUD_SQL_DB", "dinnerguest")
     db_user = os.getenv("CLOUD_SQL_USER", "dinnerguest_app")
-    db_password = os.getenv("CLOUD_SQL_PASSWORD", "DinnerGuest2026!Secure")
+    try:
+        from dinnerguest.database import get_db_password
+        db_password = get_db_password()
+    except Exception:
+        db_password = os.getenv("CLOUD_SQL_PASSWORD")
     conn_name = os.getenv("CLOUD_SQL_CONNECTION_NAME")
     db_host = os.getenv("DB_HOST") or "127.0.0.1"
     db_port = int(os.getenv("DB_PORT", "5432"))

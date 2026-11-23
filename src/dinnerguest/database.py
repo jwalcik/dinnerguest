@@ -18,13 +18,51 @@ from dinnerguest.observability import get_structured_logger, start_span
 
 logger = get_structured_logger(__name__)
 
-# Cloud SQL Connection parameters
+# Cloud SQL Connection parameters (passwords are injected via Secret Manager, never hardcoded)
 CLOUD_SQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME")
 CLOUD_SQL_DB = os.getenv("CLOUD_SQL_DB", "dinnerguest")
 CLOUD_SQL_USER = os.getenv("CLOUD_SQL_USER", "dinnerguest_app")
-CLOUD_SQL_PASSWORD = os.getenv("CLOUD_SQL_PASSWORD", "DinnerGuest2026!Secure")
+CLOUD_SQL_PASSWORD_SECRET_ID = os.getenv("CLOUD_SQL_PASSWORD_SECRET_ID", "dinnerguest-db-password")
+CLOUD_SQL_PASSWORD = os.getenv("CLOUD_SQL_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
+
+_CACHED_SECRET_PASSWORD: Optional[str] = None
+
+
+def get_db_password() -> Optional[str]:
+    """Resolves the Cloud SQL password securely without hardcoded secrets.
+
+    1. Reads `CLOUD_SQL_PASSWORD` if mounted by Cloud Run Secret Manager integration.
+    2. Otherwise fetches the latest version of `CLOUD_SQL_PASSWORD_SECRET_ID`
+       directly from Google Cloud Secret Manager (`google.cloud.secretmanager`).
+    """
+    global _CACHED_SECRET_PASSWORD
+    env_pwd = os.getenv("CLOUD_SQL_PASSWORD") or CLOUD_SQL_PASSWORD
+    if env_pwd:
+        return env_pwd
+    if _CACHED_SECRET_PASSWORD is not None:
+        return _CACHED_SECRET_PASSWORD
+
+    project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    secret_id = os.getenv("CLOUD_SQL_PASSWORD_SECRET_ID", CLOUD_SQL_PASSWORD_SECRET_ID)
+    if not project or not secret_id:
+        return None
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": secret_name})
+        payload = response.payload.data.decode("UTF-8").strip()
+        if payload:
+            _CACHED_SECRET_PASSWORD = payload
+            return payload
+    except Exception as exc:
+        logger.debug("Could not retrieve database password from Secret Manager (%s)", exc)
+
+    return None
 
 
 def clean_recipe_text_list(val: Any) -> List[str]:
@@ -187,7 +225,7 @@ def get_db_connection() -> Any:
     conn_name = os.getenv("CLOUD_SQL_CONNECTION_NAME", CLOUD_SQL_CONNECTION_NAME)
     db_name = os.getenv("CLOUD_SQL_DB", CLOUD_SQL_DB)
     db_user = os.getenv("CLOUD_SQL_USER", CLOUD_SQL_USER)
-    db_password = os.getenv("CLOUD_SQL_PASSWORD", CLOUD_SQL_PASSWORD)
+    db_password = get_db_password()
     db_host = os.getenv("DB_HOST", DB_HOST) or "127.0.0.1"
     db_port = int(os.getenv("DB_PORT", str(DB_PORT)))
 

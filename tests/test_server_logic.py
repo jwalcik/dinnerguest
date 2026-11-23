@@ -174,12 +174,15 @@ class TestServerLogic(unittest.TestCase):
         self.assertTrue(any(tc.get("tool") == "plan_and_save_event_menu" for tc in tool_calls))
 
     def test_database_status(self):
-        from dinnerguest.database import get_database_status
+        from dinnerguest.database import CLOUD_SQL_PASSWORD, get_database_status, get_db_password
         status = get_database_status()
         self.assertIn("configured", status)
         self.assertIn("connected", status)
         self.assertIn("driver", status)
         self.assertIn("recipe_count", status)
+        # Ensure no hardcoded default password in source code
+        self.assertIsNone(CLOUD_SQL_PASSWORD)
+        self.assertIsNone(get_db_password())
 
     def test_on_hand_chicken_sandwich_dinner(self):
         result = _execute_agent_turn(

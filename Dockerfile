@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         python-dotenv \
         "google-cloud-storage>=2.10.0" \
         "google-cloud-firestore>=2.13.0" \
+        "google-cloud-secret-manager>=2.16.0" \
         "google-cloud-aiplatform>=1.40.0" \
         "google-genai>=0.1.0" \
         "opentelemetry-api>=1.20.0" \

@@ -51,11 +51,12 @@ load_deploy_env() {
     GCS_BUCKET="${GCS_BUCKET:-${PROJECT_ID}-dinnerguest-assets}"
     FIRESTORE_DATABASE="${FIRESTORE_DATABASE:-dinnerguest-events}"
     
-    # Cloud SQL Configuration
+    # Cloud SQL & Secret Manager Configuration (No hardcoded passwords in source code)
     CLOUD_SQL_INSTANCE="${CLOUD_SQL_INSTANCE:-dinnerguest-postgres}"
     CLOUD_SQL_DB="${CLOUD_SQL_DB:-dinnerguest}"
     CLOUD_SQL_USER="${CLOUD_SQL_USER:-dinnerguest_app}"
-    CLOUD_SQL_PASSWORD="${CLOUD_SQL_PASSWORD:-DinnerGuest2026!Secure}"
+    CLOUD_SQL_PASSWORD_SECRET="${CLOUD_SQL_PASSWORD_SECRET:-dinnerguest-db-password}"
+    CLOUD_SQL_PASSWORD="${CLOUD_SQL_PASSWORD:-}"
     # Default to cost-effective tier, customizable via CLOUD_SQL_TIER
     CLOUD_SQL_TIER="${CLOUD_SQL_TIER:-db-custom-2-7680}"
     CLOUD_SQL_POSTGRES_VERSION="${CLOUD_SQL_POSTGRES_VERSION:-POSTGRES_15}"
@@ -67,9 +68,51 @@ load_deploy_env() {
     GEN_MODEL="${GEN_MODEL:-gemini-3.8-flash}"
 
     export PROJECT_ID REGION ZONE GCS_BUCKET FIRESTORE_DATABASE \
-           CLOUD_SQL_INSTANCE CLOUD_SQL_DB CLOUD_SQL_USER CLOUD_SQL_PASSWORD \
+           CLOUD_SQL_INSTANCE CLOUD_SQL_DB CLOUD_SQL_USER CLOUD_SQL_PASSWORD_SECRET CLOUD_SQL_PASSWORD \
            CLOUD_SQL_TIER CLOUD_SQL_POSTGRES_VERSION SERVICE_ACCOUNT_NAME \
            SERVICE_ACCOUNT_EMAIL AGENT_SERVICE_NAME GEN_MODEL
+}
+
+# Ensure Cloud SQL password is stored in and retrieved from Google Cloud Secret Manager
+ensure_db_password_secret() {
+    enable_service "secretmanager.googleapis.com"
+
+    if ! gcloud secrets describe "$CLOUD_SQL_PASSWORD_SECRET" --project="$PROJECT_ID" --quiet &>/dev/null; then
+        log_step "Creating Secret Manager secret '$CLOUD_SQL_PASSWORD_SECRET'..."
+        gcloud secrets create "$CLOUD_SQL_PASSWORD_SECRET" \
+            --replication-policy="automatic" \
+            --project="$PROJECT_ID" \
+            --quiet
+        log_success "Created Secret Manager secret '$CLOUD_SQL_PASSWORD_SECRET'."
+    fi
+
+    # Check if an existing secret version is present in Secret Manager
+    local existing_secret=""
+    existing_secret=$(gcloud secrets versions access latest --secret="$CLOUD_SQL_PASSWORD_SECRET" --project="$PROJECT_ID" --quiet 2>/dev/null || true)
+
+    if [[ -n "$CLOUD_SQL_PASSWORD" ]]; then
+        if [[ "$CLOUD_SQL_PASSWORD" != "$existing_secret" ]]; then
+            log_step "Storing provided CLOUD_SQL_PASSWORD in Secret Manager ('$CLOUD_SQL_PASSWORD_SECRET')..."
+            printf '%s' "$CLOUD_SQL_PASSWORD" | gcloud secrets versions add "$CLOUD_SQL_PASSWORD_SECRET" \
+                --data-file=- \
+                --project="$PROJECT_ID" \
+                --quiet >/dev/null
+            log_success "Updated secret version in '$CLOUD_SQL_PASSWORD_SECRET'."
+        fi
+    elif [[ -n "$existing_secret" ]]; then
+        CLOUD_SQL_PASSWORD="$existing_secret"
+        log_info "Loaded CLOUD_SQL_PASSWORD from Secret Manager ('$CLOUD_SQL_PASSWORD_SECRET')."
+    else
+        log_step "Generating secure random database password and storing in Secret Manager ('$CLOUD_SQL_PASSWORD_SECRET')..."
+        CLOUD_SQL_PASSWORD=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24)
+        printf '%s' "$CLOUD_SQL_PASSWORD" | gcloud secrets versions add "$CLOUD_SQL_PASSWORD_SECRET" \
+            --data-file=- \
+            --project="$PROJECT_ID" \
+            --quiet >/dev/null
+        log_success "Stored generated database password in Secret Manager ('$CLOUD_SQL_PASSWORD_SECRET')."
+    fi
+
+    export CLOUD_SQL_PASSWORD
 }
 
 # Verify Prerequisites

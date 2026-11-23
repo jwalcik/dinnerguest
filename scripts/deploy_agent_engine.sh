@@ -19,9 +19,11 @@ enable_service "aiplatform.googleapis.com"
 enable_service "run.googleapis.com"
 enable_service "artifactregistry.googleapis.com"
 enable_service "cloudbuild.googleapis.com"
+enable_service "secretmanager.googleapis.com"
 enable_service "cloudtrace.googleapis.com"
 enable_service "logging.googleapis.com"
 gcloud services enable "telemetry.googleapis.com" "observability.googleapis.com" --project="$PROJECT_ID" --quiet &>/dev/null || true
+ensure_db_password_secret
 
 # 2. Setup Dedicated Service Account
 log_info "Checking Service Account '$SERVICE_ACCOUNT_EMAIL'..."
@@ -40,6 +42,7 @@ ROLES=(
     "roles/aiplatform.user"
     "roles/datastore.user"
     "roles/cloudsql.client"
+    "roles/secretmanager.secretAccessor"
     "roles/storage.objectViewer"
     "roles/logging.logWriter"
     "roles/cloudtrace.agent"
@@ -53,7 +56,12 @@ for role in "${ROLES[@]}"; do
         --role="$role" \
         --quiet &>/dev/null || true
 done
-log_success "IAM roles configured."
+gcloud secrets add-iam-policy-binding "$CLOUD_SQL_PASSWORD_SECRET" \
+    --project="$PROJECT_ID" \
+    --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --quiet &>/dev/null || true
+log_success "IAM roles and Secret Manager access configured."
 
 # 4. Setup Artifact Registry Repository
 DOCKER_REPO="dinnerguest-repo"
@@ -115,7 +123,8 @@ gcloud run deploy "$AGENT_SERVICE_NAME" \
     --region="$REGION" \
     --platform="managed" \
     --service-account="$SERVICE_ACCOUNT_EMAIL" \
-    --set-env-vars="PROJECT_ID=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},FIRESTORE_DATABASE=${FIRESTORE_DATABASE},USE_FIRESTORE=true,ENABLE_CLOUD_TRACE=true,CLOUD_SQL_INSTANCE=${CLOUD_SQL_INSTANCE},CLOUD_SQL_DB=${CLOUD_SQL_DB},CLOUD_SQL_USER=${CLOUD_SQL_USER},CLOUD_SQL_PASSWORD=${CLOUD_SQL_PASSWORD},CLOUD_SQL_CONNECTION_NAME=${SQL_CONNECTION},GEN_MODEL=${GEN_MODEL}" \
+    --set-env-vars="PROJECT_ID=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},FIRESTORE_DATABASE=${FIRESTORE_DATABASE},USE_FIRESTORE=true,ENABLE_CLOUD_TRACE=true,CLOUD_SQL_INSTANCE=${CLOUD_SQL_INSTANCE},CLOUD_SQL_DB=${CLOUD_SQL_DB},CLOUD_SQL_USER=${CLOUD_SQL_USER},CLOUD_SQL_PASSWORD_SECRET_ID=${CLOUD_SQL_PASSWORD_SECRET},CLOUD_SQL_CONNECTION_NAME=${SQL_CONNECTION},GEN_MODEL=${GEN_MODEL}" \
+    --set-secrets="CLOUD_SQL_PASSWORD=${CLOUD_SQL_PASSWORD_SECRET}:latest" \
     --port=8080 \
     --timeout=300 \
     --allow-unauthenticated \
