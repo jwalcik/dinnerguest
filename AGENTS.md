@@ -43,13 +43,15 @@ Specialized sub-agent for multi-course event planning, persistent menu storage, 
 
 ### `OnHandAgent` (`on_hand_agent` — `src/dinnerguest/agents/on_hand_agent.py`)
 Specialized sub-agent for matching on-hand pantry ingredients (`find_recipes_by_on_hand_ingredients`):
+- Invoked **only** when the user provides a positive list of food ingredients they currently have on hand (e.g., *"I have ground beef and hamburger buns, what can I make for dinner?"*). Never invoked for negative ingredient exclusions (e.g., *"I feel like a savory appetizer that doesn't have any cheese"*), which belong to `VibeAgent`.
 - Assumes universal kitchen staples (cooking oil, water, salt, pepper, basic baking essentials, common dry shelf spices) are available unless told otherwise.
 - Applies culinary judgment for viable ingredient substitutions and explains why they work in the dish.
 - Explicitly notes any unused user ingredients that can be saved for another meal, and caps recommendations at a maximum of 5 recipes per turn.
 
 ### `VibeAgent` (`vibe_agent` — `src/dinnerguest/agents/vibe_agent.py`)
-Specialized sub-agent for mood, season, weather, and craving-based discovery (`search_recipes_by_vibe`):
+Specialized sub-agent for mood, season, weather, course type, and craving-based discovery (`search_recipes_by_vibe`):
 - Asks up to 5 friendly clarifying questions when cravings are broad (e.g., narrowing spicy pork to tacos vs. noodles, or cozy food to savory vs. sweet) before executing vector/hybrid recipe search.
+- Supports `excluded_ingredients` for cravings with dietary or ingredient exclusions (e.g., *"I feel like a savory appetizer that doesn't have any cheese"* $\rightarrow$ `vibe_or_craving="savory appetizer"`, `flavor_profile="savory"`, `excluded_ingredients=["cheese"]`) and ensures no recommended recipe contains an excluded ingredient.
 
 ---
 

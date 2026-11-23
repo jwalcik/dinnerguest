@@ -239,16 +239,17 @@ class VibeRecommendationAgent:
 
 
 # ADK Agent Definition
-VIBE_AGENT_INSTRUCTION = """You are the Vibe & Mood Recommendation Sub-Agent for Dinnerguest.
-Your role is to discover and recommend delicious recipes based on mood, vibe, cravings, season, or weather.
+VIBE_AGENT_INSTRUCTION = """You are the Vibe & Mood Recommendation Sub-Agent (VibeAgent) for Dinnerguest.
+Your role is to discover and recommend delicious recipes based on mood, vibe, cravings, course type, season, weather, or dietary/ingredient exclusions.
 
 Guidelines:
-1. When a user asks for a recommendation based on mood, vibe, or vague cravings (e.g., "I want something cozy", "I need comfort food"):
+1. When a user asks for a recommendation based on mood, vibe, or broad cravings (e.g., "I want something cozy", "I need comfort food"):
    - Guide them with friendly, clarifying questions (up to 5 questions maximum).
-   - For spicy cravings, ask if they prefer noodles or tacos.
+   - For spicy pork cravings, ask if they prefer noodles or tacos.
    - For cozy/comfort cravings, ask if they want savory or sweet.
-2. When the user specifies particular tastes, flavors, ingredients, or dish formats (e.g., "spicy tuna dish", "chicken soup", "sweet fruit crisp"):
-   - Call `search_recipes_by_vibe` with their criteria to retrieve recipes from the vector database.
+2. When the user specifies particular tastes, flavors, courses, dish formats, or ingredient exclusions (e.g., "I feel like a sweet noodle dish", "I feel like a savory appetizer that doesn't have any cheese", "spicy tuna dish", "chicken soup"):
+   - Call `search_recipes_by_vibe` with a clean positive `vibe_or_craving` query (e.g., "savory appetizer", "sweet noodle"), optional `flavor_profile` ("savory" or "sweet"), optional `format`, and any `excluded_ingredients` the user wants to avoid (e.g., `excluded_ingredients=["cheese"]` when the user says "doesn't have any cheese" or "without cheese").
+   - Verify that every recommended recipe respects the user's `excluded_ingredients` and never recommend a recipe containing an excluded ingredient.
 3. For every recommended recipe, present the recipe details clearly along with the allergen notice.
 4. If unable to identify a specific recommendation within 5 turns, apologize politely and ask the user to provide more details.
 """
@@ -258,16 +259,22 @@ def search_recipes_by_vibe_adk(
     query: str,
     format: Optional[str] = None,
     flavor_profile: Optional[str] = None,
+    excluded_ingredients: Optional[List[str]] = None,
     limit: int = 5,
 ) -> List[Dict[str, Any]]:
-    """Tool function for the Vibe Agent to search recipes by mood, vibe, or cravings."""
+    """Tool function for the Vibe Agent to search recipes by mood, vibe, cravings, and excluded ingredients."""
     tool = VibeSearchTool()
     filters = {}
     if format:
         filters["format"] = format
     if flavor_profile:
         filters["flavor_profile"] = flavor_profile
-    results = tool.search_by_vibe(query, filters=filters, limit=limit)
+    results = tool.search_by_vibe(
+        query,
+        filters=filters,
+        limit=limit,
+        excluded_ingredients=excluded_ingredients,
+    )
     return [r.to_dict() for r in results]
 
 

@@ -673,6 +673,240 @@ def _extract_trace_id(request: Any = None) -> str:
     return uuid.uuid4().hex
 
 
+def _build_Explicit_tool_declarations(types_mod: Any) -> Any:
+    """Builds explicit Vertex AI FunctionDeclarations so `Dict[str, Any]` parameters
+    have explicit OBJECT properties and never fail schema validation or trigger hidden AFC.
+    """
+    decls = [
+        types_mod.FunctionDeclaration(
+            name="find_recipes_by_on_hand_ingredients",
+            description=(
+                "Finds recipes matching actual food ingredients the user positively has on hand in their kitchen, fridge, or pantry. "
+                "NEVER call this tool for cravings with excluded ingredients (e.g., 'doesn't have any cheese') or event planning (e.g., 'game night')."
+            ),
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "ingredients": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "List of food ingredients the user currently has available to cook with.",
+                    },
+                    "category": {
+                        "type": "STRING",
+                        "description": "Optional meal type or course filter (e.g. 'dinner', 'dessert', 'soup').",
+                    },
+                    "max_missing": {
+                        "type": "INTEGER",
+                        "description": "Maximum allowed missing ingredients (default 2).",
+                    },
+                    "page": {
+                        "type": "INTEGER",
+                        "description": "Page number (default 1).",
+                    },
+                },
+                "required": ["ingredients"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="search_recipes_by_vibe",
+            description=(
+                "Searches recipes based on mood, vibe, craving, course type, weather, or specific dish request, "
+                "with optional excluded_ingredients for dietary/ingredient exclusions (e.g., 'savory appetizer that doesn't have any cheese')."
+            ),
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "vibe_or_craving": {
+                        "type": "STRING",
+                        "description": "Positive description of the craving, course, or dish (e.g. 'savory appetizer', 'sweet noodle', 'spicy pork').",
+                    },
+                    "flavor_profile": {
+                        "type": "STRING",
+                        "description": "Optional flavor profile filter ('savory' or 'sweet').",
+                    },
+                    "format": {
+                        "type": "STRING",
+                        "description": "Optional dish format filter (e.g. 'noodle', 'taco', 'soup', 'crisp').",
+                    },
+                    "protein": {
+                        "type": "STRING",
+                        "description": "Optional protein filter (e.g. 'pork', 'beef', 'chicken', 'tuna').",
+                    },
+                    "excluded_ingredients": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "Optional list of ingredients to exclude (e.g. ['cheese'] when user says 'doesn't have any cheese').",
+                    },
+                    "limit": {
+                        "type": "INTEGER",
+                        "description": "Maximum number of recipes to return (default 5).",
+                    },
+                },
+                "required": ["vibe_or_craving"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="check_allergens_for_ingredients",
+            description="Deterministically checks a list of ingredients against FDA FALCPA Big 9 allergens.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "ingredients": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "List of ingredient strings to screen for allergens.",
+                    },
+                },
+                "required": ["ingredients"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="scale_recipe_servings",
+            description="Scales a standalone recipe's ingredient quantities from original_servings to target_servings.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "recipe_title": {"type": "STRING", "description": "Name of the recipe."},
+                    "ingredients": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "description": "List of ingredient strings with quantities.",
+                    },
+                    "original_servings": {"type": "INTEGER", "description": "Base recipe servings."},
+                    "target_servings": {"type": "INTEGER", "description": "Target servings to scale to."},
+                },
+                "required": ["recipe_title", "ingredients", "original_servings", "target_servings"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="generate_grocery_list",
+            description="Generates a consolidated supermarket shopping list from one or more recipes.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "recipe_ingredient_lists": {
+                        "type": "ARRAY",
+                        "description": "List of recipe objects with title and ingredients.",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "title": {"type": "STRING", "description": "Recipe title."},
+                                "ingredients": {
+                                    "type": "ARRAY",
+                                    "items": {"type": "STRING"},
+                                    "description": "List of ingredient strings.",
+                                },
+                                "scale_factor": {"type": "NUMBER", "description": "Optional scale multiplier."},
+                            },
+                            "required": ["title", "ingredients"],
+                        },
+                    },
+                },
+                "required": ["recipe_ingredient_lists"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="save_event_menu",
+            description="Saves and scales a multi-course event menu in persistent storage once guest_count and dishes are determined.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING", "description": "Event name or label (e.g. 'Saturday Gamenight', 'Thanksgiving Dinner')."},
+                    "guest_count": {"type": "INTEGER", "description": "Number of guests expected."},
+                    "dishes": {
+                        "type": "ARRAY",
+                        "description": "List of planned course dishes.",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "recipe_id": {"type": "STRING", "description": "Optional recipe ID."},
+                                "recipe_title": {"type": "STRING", "description": "Title of the dish."},
+                                "course": {"type": "STRING", "description": "Course name (e.g. 'Appetizer', 'Main', 'Side', 'Dessert')."},
+                                "original_servings": {"type": "INTEGER", "description": "Base recipe servings (default 4)."},
+                                "ingredients": {
+                                    "type": "ARRAY",
+                                    "items": {"type": "STRING"},
+                                    "description": "List of ingredient strings for the dish.",
+                                },
+                            },
+                            "required": ["recipe_title", "ingredients"],
+                        },
+                    },
+                    "theme": {"type": "STRING", "description": "Optional theme description."},
+                    "notes": {"type": "STRING", "description": "Optional planning notes."},
+                },
+                "required": ["name", "guest_count", "dishes"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="get_event_menu",
+            description="Recalls a previously saved event menu by name or slug.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "name_or_id": {"type": "STRING", "description": "Name or slug of the saved event menu."},
+                },
+                "required": ["name_or_id"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="list_event_menus",
+            description="Lists all saved event menus in persistent storage.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {},
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="generate_grocery_list_for_menu",
+            description="Generates a consolidated aisle-by-aisle grocery list for a saved event menu.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "name_or_id": {"type": "STRING", "description": "Name or slug of the saved event menu."},
+                },
+                "required": ["name_or_id"],
+            },
+        ),
+        types_mod.FunctionDeclaration(
+            name="update_event_menu_dish",
+            description=(
+                "Modifies an existing saved event menu: replace a dish (action='replace'), add a course (action='add'), "
+                "remove a dish (action='remove'), change guest count (action='scale'), or rename the event (action='rename')."
+            ),
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "name_or_id": {"type": "STRING", "description": "Name or ID of the saved event menu."},
+                    "action": {
+                        "type": "STRING",
+                        "description": "One of 'replace', 'add', 'remove', 'scale', or 'rename'.",
+                    },
+                    "dish_query": {
+                        "type": "STRING",
+                        "description": "Clean culinary search query for the new dish (when action is 'replace' or 'add'), or the new event name (when action is 'rename').",
+                    },
+                    "target_dish_or_course": {
+                        "type": "STRING",
+                        "description": "Dish title or course to replace or remove.",
+                    },
+                    "course": {
+                        "type": "STRING",
+                        "description": "Course label when adding or replacing a dish (e.g. 'Appetizer', 'Main', 'Side', 'Dessert').",
+                    },
+                    "new_guest_count": {
+                        "type": "INTEGER",
+                        "description": "Target guest count when action is 'scale'.",
+                    },
+                },
+                "required": ["name_or_id", "action"],
+            },
+        ),
+    ]
+    return types_mod.Tool(function_declarations=decls)
+
+
 def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Optional[Dict[str, Any]]:
     """Attempts to execute the agent turn using Gemini with tools via Google GenAI / Vertex AI.
 
@@ -703,11 +937,11 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         from dinnerguest.agents.vibe_agent import VIBE_AGENT_INSTRUCTION
 
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        configured_model = os.getenv("GEN_MODEL", "gemini-3.8-flash")
-        candidate_models = [configured_model]
-        for fallback_model in ("gemini-2.5-flash", "gemini-2.0-flash"):
-            if fallback_model not in candidate_models:
-                candidate_models.append(fallback_model)
+        configured_model = os.getenv("GEN_MODEL", "gemini-2.5-flash")
+        candidate_models: List[str] = []
+        for m_name in ("gemini-2.5-flash", "gemini-2.0-flash", configured_model):
+            if m_name and m_name not in candidate_models:
+                candidate_models.append(m_name)
 
         client = genai.Client(vertexai=True, project=project, location=location)
         available_tools = [
@@ -723,6 +957,7 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             update_event_menu_dish,
         ]
         tool_map = {fn.__name__: fn for fn in available_tools}
+        explicit_tool = _build_Explicit_tool_declarations(types)
 
         session = _SESSIONS.setdefault(session_id, {
             "vibe_state": None,
@@ -748,7 +983,7 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         history = list(session.get("chat_history") or [])
         chat = None
         response = None
-        active_model_name = configured_model
+        active_model_name = candidate_models[0]
 
         for model_candidate in candidate_models:
             try:
@@ -757,7 +992,7 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                     history=history,
                     config=types.GenerateContentConfig(
                         system_instruction=sys_instruction,
-                        tools=available_tools,
+                        tools=[explicit_tool],
                         temperature=0.2,
                     ),
                 )
@@ -824,13 +1059,16 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             else:
                 break
 
-        try:
-            session["chat_history"] = list(chat.get_history())
-        except Exception:
-            pass
-
         reply_text = getattr(response, "text", "") or ""
         if reply_text.strip():
+            try:
+                clean_history = list(session.get("chat_history") or [])
+                clean_history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_msg)]))
+                clean_history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply_text.strip())]))
+                session["chat_history"] = clean_history[-20:]
+            except Exception:
+                pass
+
             out_payload: Dict[str, Any] = {
                 "reply": reply_text.strip(),
                 "session_id": session_id,
@@ -841,7 +1079,7 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                 out_payload["data"] = last_tool_result
             return out_payload
     except Exception as exc:
-        logger.info("Vertex AI LLM agent pass skipped (%s); executing deterministic culinary pipeline", exc)
+        logger.warning("Vertex AI LLM agent pass skipped (%s); executing deterministic culinary pipeline", exc)
         return None
 
     return None

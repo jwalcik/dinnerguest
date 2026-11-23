@@ -539,9 +539,26 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     return None
 
 
+def _recipe_contains_excluded(recipe: Dict[str, Any], excluded_terms: List[str]) -> bool:
+    """Checks if a recipe's title or ingredients contain any excluded ingredient term."""
+    if not excluded_terms:
+        return False
+    title_l = (recipe.get("title") or "").lower()
+    ings_l = " ".join(str(i).lower() for i in (recipe.get("ingredients") or []))
+    combined = f"{title_l} {ings_l}"
+    for term in excluded_terms:
+        t = term.strip().lower()
+        if not t:
+            continue
+        if re.search(rf"\b{re.escape(t)}s?\b", combined):
+            return True
+    return False
+
+
 def search_recipes_by_vector(
     query_text: str,
     limit: int = 5,
+    excluded_ingredients: Optional[List[str]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Queries Cloud SQL PostgreSQL using pgvector cosine distance (<=>).
 
@@ -552,45 +569,78 @@ def search_recipes_by_vector(
     if conn is None:
         return None
 
+    excl_list = [e.strip().lower() for e in (excluded_ingredients or []) if e and e.strip()]
+    fetch_limit = max(limit * 4, 25) if excl_list else limit
+    primary_excl = f"%{excl_list[0]}%" if excl_list else ""
+
     try:
         # 1. Attempt dense vector search via pgvector if an embedding can be generated
         dish_words = [
             w.rstrip("s") for w in re.findall(r"\b[a-zA-Z]{3,}\b", query_text.lower())
-            if w not in {"food", "dish", "make", "cook", "like", "want", "some", "sort", "kind", "recipe", "with", "and", "the", "for", "feel", "craving"}
+            if w not in {
+                "food", "dish", "make", "cook", "like", "want", "some", "sort", "kind",
+                "recipe", "with", "and", "the", "for", "feel", "craving", "that", "doesn",
+                "does", "not", "don", "have", "any", "without", "free",
+            }
+            and w.lower() not in excl_list
         ]
         query_vector = generate_embedding(query_text)
         if query_vector is not None:
             vec_str = "[" + ",".join(str(round(v, 6)) for v in query_vector) + "]"
             if hasattr(conn, "run"):
                 try:
-                    rows = conn.run("""
-                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
-                               (embedding <=> :vec::vector) AS distance
-                        FROM recipes
-                        WHERE embedding IS NOT NULL
-                        ORDER BY distance ASC
-                        LIMIT :limit
-                    """, vec=vec_str, limit=limit)
+                    if primary_excl:
+                        rows = conn.run("""
+                            SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                                   (embedding <=> :vec::vector) AS distance
+                            FROM recipes
+                            WHERE embedding IS NOT NULL
+                              AND NOT (title ILIKE :excl OR ingredients_raw::text ILIKE :excl)
+                            ORDER BY distance ASC
+                            LIMIT :limit
+                        """, vec=vec_str, excl=primary_excl, limit=fetch_limit)
+                    else:
+                        rows = conn.run("""
+                            SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                                   (embedding <=> :vec::vector) AS distance
+                            FROM recipes
+                            WHERE embedding IS NOT NULL
+                            ORDER BY distance ASC
+                            LIMIT :limit
+                        """, vec=vec_str, limit=fetch_limit)
                     if rows:
-                        recipes = [row_to_recipe_dict(row) for row in rows]
+                        recipes = [
+                            r for r in (row_to_recipe_dict(row) for row in rows)
+                            if not _recipe_contains_excluded(r, excl_list)
+                        ]
                         # If embeddings are partially populated and top vector hit doesn't match the dish title,
                         # supplement with exact title matches from the full recipes table
-                        if dish_words and not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2]):
+                        if dish_words and (not recipes or not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2])):
                             try:
                                 dish_pattern = "%" + "%".join(dish_words[:3]) + "%"
-                                title_rows = conn.run("""
-                                    SELECT id, title, servings, ingredients_raw, instructions_raw, tags
-                                    FROM recipes
-                                    WHERE title ILIKE :dp
-                                    LIMIT :limit
-                                """, dp=dish_pattern, limit=limit)
+                                if primary_excl:
+                                    title_rows = conn.run("""
+                                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                        FROM recipes
+                                        WHERE title ILIKE :dp
+                                          AND NOT (title ILIKE :excl OR ingredients_raw::text ILIKE :excl)
+                                        LIMIT :limit
+                                    """, dp=dish_pattern, excl=primary_excl, limit=fetch_limit)
+                                else:
+                                    title_rows = conn.run("""
+                                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                        FROM recipes
+                                        WHERE title ILIKE :dp
+                                        LIMIT :limit
+                                    """, dp=dish_pattern, limit=fetch_limit)
                                 if title_rows:
                                     seen_ids = set()
                                     merged = []
                                     for tr in title_rows:
                                         rd = row_to_recipe_dict(tr, score=0.95)
-                                        seen_ids.add(rd["id"])
-                                        merged.append(rd)
+                                        if not _recipe_contains_excluded(rd, excl_list):
+                                            seen_ids.add(rd["id"])
+                                            merged.append(rd)
                                     for vr in recipes:
                                         if vr["id"] not in seen_ids:
                                             merged.append(vr)
@@ -598,41 +648,65 @@ def search_recipes_by_vector(
                             except Exception:
                                 pass
                         conn.close()
-                        return recipes
+                        return recipes[:limit]
                 except Exception as pg_err:
                     logger.debug("pgvector cosine query failed, falling back to text rank: %s", pg_err)
 
             elif hasattr(conn, "cursor"):
                 try:
                     cur = conn.cursor()
-                    cur.execute("""
-                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
-                               (embedding <=> %s::vector) AS distance
-                        FROM recipes
-                        WHERE embedding IS NOT NULL
-                        ORDER BY distance ASC
-                        LIMIT %s
-                    """, (vec_str, limit))
+                    if primary_excl:
+                        cur.execute("""
+                            SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                                   (embedding <=> %s::vector) AS distance
+                            FROM recipes
+                            WHERE embedding IS NOT NULL
+                              AND NOT (title ILIKE %s OR ingredients_raw::text ILIKE %s)
+                            ORDER BY distance ASC
+                            LIMIT %s
+                        """, (vec_str, primary_excl, primary_excl, fetch_limit))
+                    else:
+                        cur.execute("""
+                            SELECT id, title, servings, ingredients_raw, instructions_raw, tags,
+                                   (embedding <=> %s::vector) AS distance
+                            FROM recipes
+                            WHERE embedding IS NOT NULL
+                            ORDER BY distance ASC
+                            LIMIT %s
+                        """, (vec_str, fetch_limit))
                     rows = cur.fetchall()
                     if rows:
-                        recipes = [row_to_recipe_dict(row) for row in rows]
-                        if dish_words and not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2]):
+                        recipes = [
+                            r for r in (row_to_recipe_dict(row) for row in rows)
+                            if not _recipe_contains_excluded(r, excl_list)
+                        ]
+                        if dish_words and (not recipes or not all(dw in recipes[0]["title"].lower() for dw in dish_words[:2])):
                             try:
                                 dish_pattern = "%" + "%".join(dish_words[:3]) + "%"
-                                cur.execute("""
-                                    SELECT id, title, servings, ingredients_raw, instructions_raw, tags
-                                    FROM recipes
-                                    WHERE title ILIKE %s
-                                    LIMIT %s
-                                """, (dish_pattern, limit))
+                                if primary_excl:
+                                    cur.execute("""
+                                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                        FROM recipes
+                                        WHERE title ILIKE %s
+                                          AND NOT (title ILIKE %s OR ingredients_raw::text ILIKE %s)
+                                        LIMIT %s
+                                    """, (dish_pattern, primary_excl, primary_excl, fetch_limit))
+                                else:
+                                    cur.execute("""
+                                        SELECT id, title, servings, ingredients_raw, instructions_raw, tags
+                                        FROM recipes
+                                        WHERE title ILIKE %s
+                                        LIMIT %s
+                                    """, (dish_pattern, fetch_limit))
                                 title_rows = cur.fetchall()
                                 if title_rows:
                                     seen_ids = set()
                                     merged = []
                                     for tr in title_rows:
                                         rd = row_to_recipe_dict(tr, score=0.95)
-                                        seen_ids.add(rd["id"])
-                                        merged.append(rd)
+                                        if not _recipe_contains_excluded(rd, excl_list):
+                                            seen_ids.add(rd["id"])
+                                            merged.append(rd)
                                     for vr in recipes:
                                         if vr["id"] not in seen_ids:
                                             merged.append(vr)
@@ -641,7 +715,7 @@ def search_recipes_by_vector(
                                 pass
                         cur.close()
                         conn.close()
-                        return recipes
+                        return recipes[:limit]
                     cur.close()
                 except Exception as pg_err:
                     logger.debug("pgvector cosine query failed, falling back to text rank: %s", pg_err)
@@ -649,7 +723,11 @@ def search_recipes_by_vector(
         # 2. Database rank fallback: rank by keyword overlap across title, tags, and ingredients
         q_term = f"%{query_text.lower().strip()}%"
         q_raw = query_text.lower().strip()
-        words = [w for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_raw) if w not in {"food", "dish", "make", "cook", "like", "want"}]
+        words = [
+            w for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_raw)
+            if w not in {"food", "dish", "make", "cook", "like", "want", "feel", "that", "doesn", "does", "not", "have", "any", "without"}
+            and w not in excl_list
+        ]
         first_word = f"%{words[0]}%" if words else q_term
 
         if hasattr(conn, "run"):
@@ -660,8 +738,11 @@ def search_recipes_by_vector(
                    OR title ILIKE :first OR ingredients_raw::text ILIKE :first
                 ORDER BY (CASE WHEN title ILIKE :q THEN 0 WHEN title ILIKE :first THEN 1 ELSE 2 END), id
                 LIMIT :limit
-            """, q=q_term, q_raw=q_raw, first=first_word, limit=limit)
-            recipes = [row_to_recipe_dict(row, score=1.0) for row in rows]
+            """, q=q_term, q_raw=q_raw, first=first_word, limit=fetch_limit)
+            recipes = [
+                r for r in (row_to_recipe_dict(row, score=1.0) for row in rows)
+                if not _recipe_contains_excluded(r, excl_list)
+            ][:limit]
             conn.close()
             return recipes if recipes else None
 
@@ -674,9 +755,12 @@ def search_recipes_by_vector(
                    OR title ILIKE %s OR ingredients_raw::text ILIKE %s
                 ORDER BY (CASE WHEN title ILIKE %s THEN 0 WHEN title ILIKE %s THEN 1 ELSE 2 END), id
                 LIMIT %s
-            """, (q_term, q_term, q_raw, first_word, first_word, q_term, first_word, limit))
+            """, (q_term, q_term, q_raw, first_word, first_word, q_term, first_word, fetch_limit))
             rows = cur.fetchall()
-            recipes = [row_to_recipe_dict(row, score=1.0) for row in rows]
+            recipes = [
+                r for r in (row_to_recipe_dict(row, score=1.0) for row in rows)
+                if not _recipe_contains_excluded(r, excl_list)
+            ][:limit]
             cur.close()
             conn.close()
             return recipes if recipes else None

@@ -193,15 +193,23 @@ def search_recipes_by_vibe(
     flavor_profile: Optional[str] = None,
     format: Optional[str] = None,
     protein: Optional[str] = None,
+    excluded_ingredients: Optional[List[str]] = None,
     limit: int = 5,
 ) -> List[Dict[str, Any]]:
-    """Searches recipes based on mood, vibe, season, weather, or specific flavor cravings.
+    """Searches recipes based on mood, vibe, season, weather, course type, or specific flavor cravings.
+
+    Use this tool for any mood/craving request (e.g., "I feel like a sweet noodle dish",
+    "I feel like a savory appetizer that doesn't have any cheese", "spicy pork").
+    When the user specifies ingredients to avoid (e.g., "doesn't have any cheese", "without nuts"),
+    pass them in `excluded_ingredients` (e.g., `["cheese"]`) and keep `vibe_or_craving` focused on
+    what they want (e.g., `"savory appetizer"`).
 
     Args:
-        vibe_or_craving: Description of the craving or mood (e.g. "spicy pork", "cozy cold weather", "sweet dessert").
+        vibe_or_craving: Positive description of the craving, dish, or course (e.g. "savory appetizer", "sweet noodle", "spicy pork", "cozy cold weather").
         flavor_profile: Optional flavor profile filter ("savory", "sweet").
         format: Optional dish format filter ("noodle", "taco", "skillet", "cookies", "crisp").
         protein: Optional protein filter ("pork", "beef", "chicken").
+        excluded_ingredients: Optional list of ingredients to exclude (e.g. ["cheese"], ["beef"]).
         limit: Max number of recipes to return (default 5).
 
     Returns:
@@ -218,9 +226,19 @@ def search_recipes_by_vibe(
     with traced_tool_call(
         "search_recipes_by_vibe",
         f"Semantic vibe/recipe search for '{vibe_or_craving}'",
-        {"vibe_or_craving": vibe_or_craving, "filters": filters, "limit": limit},
+        {
+            "vibe_or_craving": vibe_or_craving,
+            "filters": filters,
+            "excluded_ingredients": excluded_ingredients,
+            "limit": limit,
+        },
     ) as ctx:
-        results = _vibe_tool.search_by_vibe(vibe_or_craving, filters=filters, limit=limit)
+        results = _vibe_tool.search_by_vibe(
+            vibe_or_craving,
+            filters=filters,
+            limit=limit,
+            excluded_ingredients=excluded_ingredients,
+        )
         out = [r.to_dict() for r in results]
         ctx["result_summary"] = {"matched_count": len(out), "top_title": out[0]["title"] if out else None}
         return out
@@ -466,8 +484,9 @@ Carefully evaluate the user's semantic intent and multi-turn conversation contex
      * Iterative Modifications & Dietary Checks: When replacing or adding a dish via `update_event_menu_dish`, pass a clean culinary query (e.g., "grilled chicken", "pecan pie"). If the user notes a guest's dietary restriction (e.g., "doesn't eat beef"), check all remaining courses on the menu and proactively warn if another dish contains that ingredient.
 
 2. On-Hand Pantry Ingredient Discovery (`OnHandAgent` & `find_recipes_by_on_hand_ingredients`):
-   - Route to `OnHandAgent` and call `find_recipes_by_on_hand_ingredients` ONLY when the user lists actual food ingredients they currently have on hand in their kitchen, fridge, or pantry and wants to know what they can make with them (e.g., "I've got some chicken breasts, hamburger buns, lettuce, tomato, bacon, and ranch dressing. What can I make for dinner?" or "I have apples, brown sugar, oats, and an onion, is there a dessert I can make?").
-   - CRITICAL DISTINCTION: Conversational expressions about hosting people or adjusting event details (such as "I'm having some friends over for game night" or "It's going to be 12 guests, not 6") are NOT pantry ingredient lists. Never call `find_recipes_by_on_hand_ingredients` when the user is talking about guests, friends, or event planning rather than food ingredients.
+   - Route to `OnHandAgent` and call `find_recipes_by_on_hand_ingredients` ONLY when the user provides a positive list of actual food ingredients they currently have on hand in their kitchen, fridge, or pantry and wants to know what they can make with them (e.g., "I have ground beef and hamburger buns, what can I make for dinner?", "I've got some chicken breasts, hamburger buns, lettuce, tomato, bacon, and ranch dressing. What can I make for dinner?", or "I have apples, brown sugar, oats, and an onion, is there a dessert I can make?").
+   - CRITICAL DISTINCTION #1 (Negative Ingredient Exclusions vs. Pantry Ingredients): When a user describes a craving or dish they want along with an ingredient they want to AVOID—using phrases like "doesn't have any cheese", "don't have meat", "without dairy", or "no nuts" (e.g., "I feel like a savory appetizer that doesn't have any cheese")—they are expressing a **vibe/craving with an ingredient exclusion**, NOT listing cheese as an on-hand ingredient! Route these requests to `VibeAgent` and call `search_recipes_by_vibe(vibe_or_craving="savory appetizer", flavor_profile="savory", excluded_ingredients=["cheese"])`. Never call `find_recipes_by_on_hand_ingredients` for negated ingredients.
+   - CRITICAL DISTINCTION #2 (Events & Guests vs. Pantry Ingredients): Conversational expressions about hosting people or adjusting event details (such as "I'm having some friends over for game night", "I need to plan a menu for game night", or "It's going to be 12 guests, not 6") are NOT pantry ingredient lists. Route those to `MenuAgent`.
    - When the user mentions a specific meal type or category (e.g. "dessert", "soup", "dinner"), pass it in the `category` argument.
    - A recipe does NOT need to use all of the user's ingredients. If a user has apples, brown sugar, oats, and an onion, recommend a dessert using the apples, brown sugar, and oats, and clearly note that the onion remains unused for another meal.
    - Prompt-Driven Pantry Staples & Ingredient Substitutions:
@@ -479,8 +498,9 @@ Carefully evaluate the user's semantic intent and multi-turn conversation contex
    - For every recommended recipe, communicate the allergen notice clearly so guests remain safe.
 
 3. Mood, Vibe, Craving, or Single-Dish Discovery (`VibeAgent` & `search_recipes_by_vibe`):
-   - Route to `VibeAgent` when a user asks for a standalone recipe or recommendation based on mood, flavor craving, or weather (e.g., "I would like a spicy pork dish", "What's something cozy I can cook?", "I need a recipe for chicken soup").
-   - Ask clarifying follow-up questions to help narrow down broad cravings:
+   - Route to `VibeAgent` and call `search_recipes_by_vibe` when a user asks for a standalone recipe or recommendation based on mood, flavor craving, course type, weather, or dietary/ingredient exclusions (e.g., "I feel like a sweet noodle dish", "I feel like a savory appetizer that doesn't have any cheese", "I would like a spicy pork dish", "What's something cozy I can cook?", "I need a recipe for chicken soup").
+   - When the user specifies an ingredient exclusion (e.g., "doesn't have any cheese", "without mushrooms", "no dairy"), pass the excluded items in `excluded_ingredients` (e.g., `excluded_ingredients=["cheese"]`) and pass only the positive dish/craving description in `vibe_or_craving` (e.g., `"savory appetizer"`). Double-check that none of the recipes you present contain the excluded ingredient.
+   - Ask clarifying follow-up questions to help narrow down broad cravings when needed:
      * For spicy pork: ask whether they would prefer a spicy taco recipe or a noodle dish.
      * For cozy / cold weather: ask whether they would like something savory or sweet.
    - Rule: Ask no more than five clarifying questions. Keep questions friendly, direct, and limited.

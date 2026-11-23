@@ -56,6 +56,20 @@ class TestVibeSearchTool(unittest.TestCase):
         # Contains soy, sesame, wheat
         self.assertIn("Sesame", dan_dan.allergen_report.unique_allergen_names)
 
+    def test_savory_appetizer_without_cheese(self):
+        """Should return savory appetizers that do not contain cheese when excluded."""
+        results = self.tool.search_by_vibe(
+            query="I feel like a savory appetizer that doesn't have any cheese",
+            filters={"flavor_profile": "savory"},
+            excluded_ingredients=["cheese"],
+        )
+        self.assertGreaterEqual(len(results), 1)
+        for r in results:
+            combined_text = f"{r.title} {' '.join(r.ingredients)}".lower()
+            self.assertNotIn("cheese", combined_text)
+            self.assertNotIn("parmesan", combined_text)
+            self.assertNotIn("cheddar", combined_text)
+
 
 if __name__ == "__main__":
     unittest.main()

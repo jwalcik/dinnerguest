@@ -37,7 +37,21 @@ class TestDinnerguestAgent(unittest.TestCase):
         self.assertIn("VibeAgent", instr)
         self.assertIn("game night", instr.lower())
         self.assertIn("Unstated Guest Count", instr)
-        self.assertIn("Never call `find_recipes_by_on_hand_ingredients` when the user is talking about guests", instr)
+        self.assertIn("excluded_ingredients", instr)
+        self.assertIn("doesn't have any cheese", instr)
+
+    def test_search_recipes_by_vibe_with_excluded_ingredients(self):
+        """search_recipes_by_vibe should filter out excluded ingredients such as cheese."""
+        results = search_recipes_by_vibe(
+            vibe_or_craving="savory appetizer",
+            flavor_profile="savory",
+            excluded_ingredients=["cheese"],
+        )
+        self.assertGreaterEqual(len(results), 1)
+        for r in results:
+            combined = f"{r['title']} {' '.join(r['ingredients'])}".lower()
+            self.assertNotIn("cheese", combined)
+            self.assertNotIn("parmesan", combined)
 
     def test_event_menu_tools(self):
         # Save menu

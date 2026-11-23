@@ -19,8 +19,59 @@ VIBE_STOP_WORDS = {
     "food", "dish", "dishes", "recipe", "recipes", "make", "cook", "cooking",
     "want", "like", "need", "some", "something", "vague", "response", "please",
     "help", "looking", "would", "could", "have", "with", "what", "good", "idea",
-    "ideas", "dinner", "lunch", "meal"
+    "ideas", "dinner", "lunch", "meal", "feel", "that", "doesn", "does", "not",
+    "don", "any", "without", "free",
 }
+
+EXCLUDED_CATEGORY_EXPANSIONS: Dict[str, List[str]] = {
+    "cheese": [
+        "cheese", "cheddar", "mozzarella", "parmesan", "feta", "ricotta",
+        "gouda", "brie", "swiss", "provolone", "queso", "gruyere", "pecorino",
+        "mascarpone", "burrata", "monterey jack", "colby",
+    ],
+    "dairy": [
+        "milk", "cream", "butter", "cheese", "yogurt", "cheddar", "mozzarella",
+        "parmesan", "sour cream", "half-and-half", "whey", "ghee",
+    ],
+}
+
+
+def parse_negated_ingredients_from_query(query: str) -> tuple[str, List[str]]:
+    """Extracts inline negated ingredients (e.g. 'that doesn't have any cheese', 'without nuts')
+    and returns (positive_query, excluded_list).
+    """
+    excluded: List[str] = []
+    positive_q = query
+
+    neg_patterns = [
+        r"\b(?:that\s+|which\s+)?(?:doesn't|does\s+not|don't|do\s+not)\s+(?:have|contain|include|use)\s+(?:any\s+)?([a-zA-Z\s]{2,25}?)(?=\s*(?:[.,;?!]|$|\band\b|\bor\b))",
+        r"\b(?:without|with\s+no|no|free\s+of)\s+(?:any\s+)?([a-zA-Z\s]{2,25}?)(?=\s*(?:[.,;?!]|$|\band\b|\bor\b))",
+        r"\b([a-zA-Z]{3,15})-free\b",
+    ]
+    for pat in neg_patterns:
+        for m in re.finditer(pat, positive_q, flags=re.IGNORECASE):
+            item = m.group(1).strip().lower()
+            if item and item not in excluded:
+                excluded.append(item)
+        positive_q = re.sub(pat, " ", positive_q, flags=re.IGNORECASE)
+
+    positive_q = re.sub(r"\s+", " ", positive_q).strip(" ,.-?!")
+    return (positive_q or query.strip()), excluded
+
+
+def expand_excluded_terms(excluded_ingredients: Optional[List[str]]) -> List[str]:
+    """Expands high-level excluded terms (like 'cheese') to include specific varieties."""
+    expanded: List[str] = []
+    for item in excluded_ingredients or []:
+        clean = item.strip().lower()
+        if not clean:
+            continue
+        if clean not in expanded:
+            expanded.append(clean)
+        for sub in EXCLUDED_CATEGORY_EXPANSIONS.get(clean, []):
+            if sub not in expanded:
+                expanded.append(sub)
+    return expanded
 
 
 @dataclass
@@ -124,17 +175,32 @@ class VibeSearchTool:
         query: str,
         filters: Optional[Dict[str, str]] = None,
         limit: int = 5,
+        excluded_ingredients: Optional[List[str]] = None,
     ) -> List[VibeRecipeResult]:
-        """Finds recipes matching mood, taste, or flavor profile.
+        """Finds recipes matching mood, taste, or flavor profile while respecting excluded ingredients.
 
         Prioritizes dense vector RAG via Cloud SQL pgvector when connected.
         Falls back to local JSON dataset with dynamic token relevance scoring
         only if Cloud SQL is absent or unreachable.
         """
+        positive_query, inline_excluded = parse_negated_ingredients_from_query(query)
+        combined_excluded = list(excluded_ingredients or [])
+        for ie in inline_excluded:
+            if ie not in combined_excluded:
+                combined_excluded.append(ie)
+        expanded_excluded = expand_excluded_terms(combined_excluded)
+
         # 1. Primary path: Vector RAG search against PostgreSQL pgvector
         try:
             from dinnerguest.database import search_recipes_by_vector
-            db_recipes = search_recipes_by_vector(query, limit=limit)
+            if expanded_excluded:
+                db_recipes = search_recipes_by_vector(
+                    positive_query,
+                    limit=limit,
+                    excluded_ingredients=expanded_excluded,
+                )
+            else:
+                db_recipes = search_recipes_by_vector(positive_query, limit=limit)
             if db_recipes is not None and len(db_recipes) > 0:
                 results: List[VibeRecipeResult] = []
                 for r in db_recipes:
@@ -147,7 +213,7 @@ class VibeSearchTool:
                             prep_time_minutes=r.get("prep_time_minutes", 15),
                             cook_time_minutes=r.get("cook_time_minutes", 20),
                             tags=r.get("tags", []),
-                            matched_vibes=[query],
+                            matched_vibes=[positive_query],
                             score=float(r.get("score", 1.0)),
                             ingredients=r.get("ingredients", []),
                             instructions=r.get("instructions", []),
@@ -159,7 +225,7 @@ class VibeSearchTool:
             pass
 
         # 2. Fallback path: Local JSON dataset scoring via dynamic semantic token matching
-        query_clean = query.lower()
+        query_clean = positive_query.lower()
         query_words = set(re.findall(r"\b[a-zA-Z]{3,}\b", query_clean))
         matched_vibe_cats = self.extract_vibe_tokens(query_clean)
 
@@ -167,10 +233,10 @@ class VibeSearchTool:
         required_format = filters.get("format", "").lower()
         required_profile = filters.get("flavor_profile", "").lower()
 
-        # Extract substantive culinary query tokens (excluding generic stopwords)
+        # Extract substantive culinary query tokens (excluding generic stopwords and excluded ingredients)
         substantive_tokens = {
             w for w in query_words
-            if w not in VIBE_STOP_WORDS and len(w) > 2
+            if w not in VIBE_STOP_WORDS and w not in expanded_excluded and len(w) > 2
         }
 
         results = []
@@ -181,6 +247,12 @@ class VibeSearchTool:
             recipe_ings = [i.lower() for i in recipe.get("ingredients", [])]
             recipe_insts = [ins.lower() for ins in recipe.get("instructions", [])]
             raw_text = f"{title_lower} {' '.join(recipe_tags)} {' '.join(recipe_ings)} {' '.join(recipe_insts)}"
+
+            # Exclude recipes containing any excluded ingredient
+            if expanded_excluded:
+                title_and_ings = f"{title_lower} {' '.join(recipe_ings)}"
+                if any(re.search(rf"\b{re.escape(ex)}s?\b", title_and_ings) for ex in expanded_excluded):
+                    continue
 
             # Format constraint
             if required_format and required_format not in raw_text:

@@ -63,8 +63,17 @@ class OnHandRecommendationAgent:
         """Extracts clean candidate ingredient tokens from conversational natural language."""
         cleaned = text.strip()
 
-        # If there's an "I have" or "have" clause, isolate it
-        m = re.search(r"\b(?:i have|i've got|we have|got)\s+(.*)", cleaned, re.IGNORECASE)
+        # Remove negated exclusion clauses (e.g. "that doesn't have any cheese", "without dairy")
+        # so excluded items are never mistaken for on-hand ingredients
+        cleaned = re.sub(
+            r"\b(?:that\s+|which\s+)?(?:doesn't|does\s+not|don't|do\s+not)\s+(?:have|contain|include|use)\s+(?:any\s+)?[a-zA-Z\s]+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        # If there's a positive "I have" / "we have" clause, isolate it
+        m = re.search(r"\b(?:i have|i've got|ive got|we have|we've got)\s+(.*)", cleaned, re.IGNORECASE)
         if m:
             cleaned = m.group(1)
 
@@ -211,18 +220,20 @@ class OnHandRecommendationAgent:
 # ADK Agent Definition
 from dinnerguest.adk import Agent
 
-ON_HAND_AGENT_INSTRUCTION = """You are the On-Hand Recipe Discovery Sub-Agent for Dinnerguest.
+ON_HAND_AGENT_INSTRUCTION = """You are the On-Hand Recipe Discovery Sub-Agent (OnHandAgent) for Dinnerguest.
 Your role is to find recipes matching ingredients the user already has in their pantry/refrigerator.
 
 Guidelines:
-1. Call `find_recipes_by_on_hand_ingredients` with the user's available ingredients and optional `category` (e.g., "dessert", "soup", "dinner").
-2. A recipe does NOT need to use all of the user's ingredients. If a user has apples, brown sugar, oats, and an onion, recommend a dessert using the apples, sugar, and oats, and clearly note that the onion remains unused for another meal.
-3. Dynamically evaluate pantry staples and ingredient substitutions using culinary context:
+1. Only invoke `find_recipes_by_on_hand_ingredients` when the user provides a positive list of food ingredients they currently possess (e.g., "I have ground beef and hamburger buns, what can I make for dinner?").
+   - NEVER treat negative ingredient exclusions (such as "that doesn't have any cheese", "without dairy", or "no nuts") as on-hand pantry ingredients. Requests describing a craving with an excluded ingredient belong to `VibeAgent` (`search_recipes_by_vibe`).
+2. Call `find_recipes_by_on_hand_ingredients` with the user's available ingredients and optional `category` (e.g., "dessert", "soup", "dinner").
+3. A recipe does NOT need to use all of the user's ingredients. If a user has apples, brown sugar, oats, and an onion, recommend a dessert using the apples, sugar, and oats, and clearly note that the onion remains unused for another meal.
+4. Dynamically evaluate pantry staples and ingredient substitutions using culinary context:
    - Assume basic kitchen staples are available unless the user explicitly notes otherwise (e.g., cooking oil, water, salt, black pepper, basic baking staples like flour/sugar/baking powder, and common dry spices like cinnamon, oregano, garlic powder, cumin).
    - Use intelligent culinary reasoning to evaluate substitutions in context (e.g., brown sugar for white sugar, shallots or scallions for onions, Greek yogurt or applesauce in baking). Always explain to the user why the substitution works in the specific dish.
-4. If a recipe is missing 1 or 2 secondary items, ask polite follow-up questions (e.g., "Do you happen to have any dry pasta on hand?").
-5. Never suggest more than 5 recipes at a time. If there are more than 5 matches, show the top 5, inform the user of the total N matching recipes, and ask if they'd like to see more.
-6. For every recipe, clearly include the allergen notice.
+5. If a recipe is missing 1 or 2 secondary items, ask polite follow-up questions (e.g., "Do you happen to have any dry pasta on hand?").
+6. Never suggest more than 5 recipes at a time. If there are more than 5 matches, show the top 5, inform the user of the total N matching recipes, and ask if they'd like to see more.
+7. For every recipe, clearly include the allergen notice.
 """
 
 
