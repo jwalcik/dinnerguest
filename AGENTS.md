@@ -33,7 +33,7 @@ The top-level orchestrator responsible for understanding the user's goal across 
 - **Direct Utility Tools**: Invoke `check_allergens_for_ingredients`, `scale_recipe_servings`, and `generate_grocery_list` for standalone allergen checks, single-recipe scaling, and ad-hoc shopping lists.
 
 ### `MenuAgent` (`menu_agent` — `src/dinnerguest/agents/menu_agent.py`)
-Specialized sub-agent for multi-course event planning, persistent menu storage, and iterative menu refinement:
+Specialized sub-agent for multi-course event planning, persistent menu storage, and iterative menu refinement (**Model: `gemini-4.0-carbon`**):
 1. **Unstated Guest Count**: If the user has not specified a specific number of guests (e.g., *"Help me plan a menu for game night"* or *"I need to plan a menu for an upcoming party"*), **never assume a default guest count**. Ask the user how many guests they are expecting as part of the planning process.
 2. **Course & Dish Selection**:
    - For major holidays with traditional menus (e.g., Thanksgiving, Easter), suggest appropriate traditional courses.
@@ -42,7 +42,8 @@ Specialized sub-agent for multi-course event planning, persistent menu storage, 
 4. **Iterative Menu Updates**: Support swapping/replacing dishes (`action="replace"`), adding courses (`action="add"`), removing dishes (`action="remove"`), and updating the guest count (`action="scale"`, e.g., *"It's going to be 12 guests, not 6"*) while automatically rescaling servings and re-evaluating cross-course allergen and dietary safety.
 
 ### `OnHandAgent` (`on_hand_agent` — `src/dinnerguest/agents/on_hand_agent.py`)
-Specialized sub-agent for matching on-hand pantry ingredients (`find_recipes_by_on_hand_ingredients`):
+Specialized sub-agent for matching on-hand pantry ingredients (`find_recipes_by_on_hand_ingredients`) with **Strategic Model Routing** (`src/dinnerguest/model_router.py`):
+- **Model Routing**: Uses `gemini-3.8-flash` when candidate recipes are direct ingredient matches (`is_exact_match=True` with no substitutions), and dynamically routes to `gemini-4.0-carbon` when candidate recipes require culinary substitutions (`substituted_ingredients`) or missing-ingredient adaptations.
 - Invoked **only** when the user provides a positive list of food ingredients they currently have on hand (e.g., *"I have ground beef and hamburger buns, what can I make for dinner?"*). Never invoked for negative ingredient exclusions (e.g., *"I feel like a savory appetizer that doesn't have any cheese"*), which belong to `VibeAgent`.
 - Assumes universal kitchen staples (cooking oil, water, salt, pepper, basic baking essentials, common dry shelf spices) are available unless told otherwise.
 - Applies culinary judgment for viable ingredient substitutions and explains why they work in the dish.

@@ -11,6 +11,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from dinnerguest.model_router import (
+    FAST_MODEL,
+    REASONING_MODEL,
+    CulinaryModelRouter,
+    RoutingDecision,
+    _DEFAULT_MODEL_ROUTER,
+)
 from dinnerguest.tools.pantry_search_tool import (
     PantrySearchTool,
     RecipeMatch,
@@ -27,9 +34,11 @@ class OnHandAgentResponse:
     remaining_count: int
     recipes: List[RecipeMatch]
     staple_followups: List[str]
+    selected_model: str = FAST_MODEL
+    routing_decision: Optional[RoutingDecision] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "reply_text": self.reply_text,
             "total_matches": self.total_matches,
             "presented_count": self.presented_count,
@@ -37,14 +46,23 @@ class OnHandAgentResponse:
             "remaining_count": self.remaining_count,
             "recipes": [r.to_dict() for r in self.recipes],
             "staple_followups": self.staple_followups,
+            "selected_model": self.selected_model,
         }
+        if self.routing_decision is not None:
+            out["routing_decision"] = self.routing_decision.to_dict()
+        return out
 
 
 class OnHandRecommendationAgent:
     """Sub-agent responsible for ingredient-based recipe discovery and dialogue."""
 
-    def __init__(self, search_tool: Optional[PantrySearchTool] = None):
+    def __init__(
+        self,
+        search_tool: Optional[PantrySearchTool] = None,
+        model_router: Optional[CulinaryModelRouter] = None,
+    ):
         self.search_tool = search_tool or PantrySearchTool()
+        self.model_router = model_router or _DEFAULT_MODEL_ROUTER
 
     def extract_category_from_text(self, text: str) -> Optional[str]:
         """Detects if user requested a specific meal category or format (e.g. dessert, soup, dinner)."""
@@ -206,6 +224,11 @@ class OnHandRecommendationAgent:
             for prompt in search_result.staple_followup_prompts:
                 reply_lines.append(f"💡 *Pantry Check:* {prompt}")
 
+        routing_decision = self.model_router.route_on_hand_turn(
+            user_msg=user_input if isinstance(user_input, str) else ", ".join(user_input),
+            tool_result=search_result.to_dict(),
+        )
+
         return OnHandAgentResponse(
             reply_text="\n".join(reply_lines),
             total_matches=search_result.total_matches_count,
@@ -214,6 +237,8 @@ class OnHandRecommendationAgent:
             remaining_count=search_result.remaining_count,
             recipes=search_result.recipes,
             staple_followups=search_result.staple_followup_prompts,
+            selected_model=routing_decision.model,
+            routing_decision=routing_decision,
         )
 
 
@@ -222,6 +247,10 @@ from dinnerguest.adk import Agent
 
 ON_HAND_AGENT_INSTRUCTION = """You are the On-Hand Recipe Discovery Sub-Agent (OnHandAgent) for Dinnerguest.
 Your role is to find recipes matching ingredients the user already has in their pantry/refrigerator.
+
+Model Routing Behavior:
+- Direct ingredient matches are handled with `gemini-3.8-flash` for low-latency presentation.
+- Requests where candidate recipes require culinary ingredient substitutions or missing-ingredient adaptations are routed to `gemini-4.0-carbon` for deep culinary substitution reasoning.
 
 Guidelines:
 1. Only invoke `find_recipes_by_on_hand_ingredients` when the user provides a positive list of food ingredients they currently possess (e.g., "I have ground beef and hamburger buns, what can I make for dinner?").
@@ -244,20 +273,28 @@ def find_recipes_by_on_hand_ingredients_adk(
     page: int = 1,
 ) -> Dict[str, Any]:
     tool = PantrySearchTool()
-    return tool.search_recipes(
+    res_dict = tool.search_recipes(
         on_hand_ingredients=ingredients,
         category=category,
         max_missing=max_missing,
         page=page,
         page_size=5,
     ).to_dict()
+    decision = _DEFAULT_MODEL_ROUTER.route_on_hand_turn(tool_result=res_dict)
+    res_dict["routing_decision"] = decision.to_dict()
+    return res_dict
 
 
 on_hand_agent = Agent(
     name="OnHandAgent",
     model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
-    description="Specialized sub-agent for finding recipes matching pantry/on-hand ingredients with substitutions and staple probing.",
+    fallback_reasoning_model=os.getenv("REASONING_MODEL", "gemini-4.0-carbon"),
+    description=(
+        "Specialized sub-agent for finding recipes matching pantry/on-hand ingredients. "
+        "Uses gemini-3.8-flash for direct matches and routes to gemini-4.0-carbon when culinary substitutions are required."
+    ),
     instruction=ON_HAND_AGENT_INSTRUCTION,
     tools=[find_recipes_by_on_hand_ingredients_adk],
+    before_model_callback=_DEFAULT_MODEL_ROUTER.adk_on_hand_model_routing_callback,
 )
 

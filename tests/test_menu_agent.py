@@ -132,10 +132,11 @@ class TestMenuPlanningAgent(unittest.TestCase):
         self.assertAlmostEqual(sugar.quantity, 1.5, places=1)
 
     def test_menu_agent_adk_instructions_and_tools(self):
-        """MenuAgent ADK definition should instruct asking for unstated guest counts and bind menu tools."""
+        """MenuAgent ADK definition should use gemini-4.0-carbon, instruct asking for unstated guest counts, and bind menu tools."""
         from dinnerguest.agents.menu_agent import MENU_AGENT_INSTRUCTION, menu_agent
 
         self.assertEqual(menu_agent.name, "MenuAgent")
+        self.assertEqual(menu_agent.model, "gemini-4.0-carbon")
         self.assertIn("If a specific number of guests is NOT specified by the user", MENU_AGENT_INSTRUCTION)
         self.assertIn("DO NOT assume a default guest count", MENU_AGENT_INSTRUCTION)
         self.assertIn("Ask the user how many guests they are expecting as part of the planning process", MENU_AGENT_INSTRUCTION)

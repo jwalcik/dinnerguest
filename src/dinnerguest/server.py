@@ -970,9 +970,10 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
             _DEFAULT_COMPACTOR,
             _DEFAULT_CONTEXT_CACHE,
         )
+        from dinnerguest.model_router import _DEFAULT_MODEL_ROUTER
 
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        configured_model = os.getenv("GEN_MODEL", "gemini-2.5-flash")
+        configured_model = os.getenv("GEN_MODEL", "gemini-3.8-flash")
         candidate_models: List[str] = []
         for m_name in ("gemini-2.5-flash", "gemini-2.0-flash", configured_model):
             if m_name and m_name not in candidate_models:
@@ -1103,6 +1104,16 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                     if tool_result.get("name"):
                         session["active_menu_name"] = tool_result["name"]
 
+                routing_decision = _DEFAULT_MODEL_ROUTER.route_for_tool_call(
+                    tool_name=call_name,
+                    tool_result=tool_result,
+                    user_msg=user_msg,
+                )
+                events.append({
+                    "type": "thought",
+                    "text": f"Model Router ({routing_decision.target_agent} -> {routing_decision.model}): {routing_decision.reason}",
+                })
+
                 events.append({
                     "type": "tool_result",
                     "tool": call_name,
@@ -1118,6 +1129,31 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                 )
 
             if tool_responses:
+                # If the router escalated to the reasoning model (e.g. gemini-4.0-carbon for substitutions or MenuAgent),
+                # attempt synthesis on the routed reasoning model first, falling back to active chat session
+                escalated_response = None
+                if routing_decision.tier == "reasoning" and routing_decision.model != active_model_name:
+                    try:
+                        synth_prompt = (
+                            f"User Request: {user_msg}\n\n"
+                            f"Tool Executed ({call_name}): {json.dumps(compacted_tool_res, default=str)}\n\n"
+                            "Provide a warm, helpful response following all formatting, substitution, and allergen guidelines."
+                        )
+                        escalated_response = client.models.generate_content(
+                            model=routing_decision.model,
+                            contents=synth_prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=sys_instruction,
+                                temperature=0.2,
+                            ),
+                        )
+                    except Exception as esc_err:
+                        logger.debug("Escalated model '%s' unavailable (%s), continuing on '%s'", routing_decision.model, esc_err, active_model_name)
+                        escalated_response = None
+
+                if escalated_response is not None and getattr(escalated_response, "text", None):
+                    response = escalated_response
+                    break
                 response = chat.send_message(tool_responses)
             else:
                 break

@@ -92,7 +92,14 @@ def find_recipes_by_on_hand_ingredients(
             page_size=5,
         )
         out = result.to_dict()
-        ctx["result_summary"] = {"total_matches_count": out.get("total_matches_count", 0)}
+        from dinnerguest.model_router import _DEFAULT_MODEL_ROUTER
+
+        routing_decision = _DEFAULT_MODEL_ROUTER.route_on_hand_turn(tool_result=out)
+        out["routing_decision"] = routing_decision.to_dict()
+        ctx["result_summary"] = {
+            "total_matches_count": out.get("total_matches_count", 0),
+            "routed_model": routing_decision.model,
+        }
         return out
 
 

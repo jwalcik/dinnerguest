@@ -514,10 +514,11 @@ def update_event_menu_dish_adk(
 
 
 from dinnerguest.memory import _DEFAULT_COMPACTOR
+from dinnerguest.model_router import REASONING_MODEL
 
 menu_agent = Agent(
     name="MenuAgent",
-    model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
+    model=os.getenv("MENU_AGENT_MODEL", REASONING_MODEL),
     description=(
         "Specialized sub-agent for planning menus for events, parties, holidays, game nights, and group meals. "
         "Handles interactive discovery of guest count, course structure, and custom event labels; "
