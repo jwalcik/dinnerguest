@@ -19,6 +19,9 @@ enable_service "aiplatform.googleapis.com"
 enable_service "run.googleapis.com"
 enable_service "artifactregistry.googleapis.com"
 enable_service "cloudbuild.googleapis.com"
+enable_service "cloudtrace.googleapis.com"
+enable_service "logging.googleapis.com"
+gcloud services enable "telemetry.googleapis.com" "observability.googleapis.com" --project="$PROJECT_ID" --quiet &>/dev/null || true
 
 # 2. Setup Dedicated Service Account
 log_info "Checking Service Account '$SERVICE_ACCOUNT_EMAIL'..."
@@ -39,6 +42,8 @@ ROLES=(
     "roles/cloudsql.client"
     "roles/storage.objectViewer"
     "roles/logging.logWriter"
+    "roles/cloudtrace.agent"
+    "roles/telemetry.tracesWriter"
 )
 
 log_step "Binding IAM roles to $SERVICE_ACCOUNT_EMAIL..."
@@ -110,7 +115,7 @@ gcloud run deploy "$AGENT_SERVICE_NAME" \
     --region="$REGION" \
     --platform="managed" \
     --service-account="$SERVICE_ACCOUNT_EMAIL" \
-    --set-env-vars="PROJECT_ID=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},FIRESTORE_DATABASE=${FIRESTORE_DATABASE},USE_FIRESTORE=true,CLOUD_SQL_INSTANCE=${CLOUD_SQL_INSTANCE},CLOUD_SQL_DB=${CLOUD_SQL_DB},CLOUD_SQL_USER=${CLOUD_SQL_USER},CLOUD_SQL_PASSWORD=${CLOUD_SQL_PASSWORD},CLOUD_SQL_CONNECTION_NAME=${SQL_CONNECTION},GEN_MODEL=${GEN_MODEL}" \
+    --set-env-vars="PROJECT_ID=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},FIRESTORE_DATABASE=${FIRESTORE_DATABASE},USE_FIRESTORE=true,ENABLE_CLOUD_TRACE=true,CLOUD_SQL_INSTANCE=${CLOUD_SQL_INSTANCE},CLOUD_SQL_DB=${CLOUD_SQL_DB},CLOUD_SQL_USER=${CLOUD_SQL_USER},CLOUD_SQL_PASSWORD=${CLOUD_SQL_PASSWORD},CLOUD_SQL_CONNECTION_NAME=${SQL_CONNECTION},GEN_MODEL=${GEN_MODEL}" \
     --port=8080 \
     --timeout=300 \
     --allow-unauthenticated \

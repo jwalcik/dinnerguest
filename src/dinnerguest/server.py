@@ -665,11 +665,12 @@ _SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def _extract_trace_id(request: Any = None) -> str:
+    import uuid
     if request and hasattr(request, "headers"):
         cloud_trace = request.headers.get("x-cloud-trace-context")
         if cloud_trace:
             return cloud_trace.split("/")[0].split(";")[0]
-    return f"{int(time.time()*1000):x}{os.getpid():04x}"
+    return uuid.uuid4().hex
 
 
 def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Optional[Dict[str, Any]]:

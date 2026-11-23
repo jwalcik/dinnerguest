@@ -316,7 +316,22 @@ def start_span(
         attributes=clean_attrs,
     )
 
-    otel_cm = _OTEL_TRACER.start_as_current_span(name) if (_OTEL_AVAILABLE and _OTEL_TRACER is not None) else None
+    otel_cm = None
+    if _OTEL_AVAILABLE and _OTEL_TRACER is not None:
+        parent_ctx = None
+        if parent_span_id is None and re.fullmatch(r"[0-9a-fA-F]{32}", active_trace_id):
+            try:
+                from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+                span_ctx = SpanContext(
+                    trace_id=int(active_trace_id, 16),
+                    span_id=int(new_span_id[:16], 16) or 1,
+                    is_remote=True,
+                    trace_flags=TraceFlags(0x01),
+                )
+                parent_ctx = otel_trace.set_span_in_context(NonRecordingSpan(span_ctx))
+            except Exception:
+                parent_ctx = None
+        otel_cm = _OTEL_TRACER.start_as_current_span(name, context=parent_ctx)
     otel_span = otel_cm.__enter__() if otel_cm is not None else None
     if otel_span is not None and hasattr(otel_span, "set_attribute"):
         for k, v in clean_attrs.items():

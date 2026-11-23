@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         "google-genai>=0.1.0" \
         "opentelemetry-api>=1.20.0" \
         "opentelemetry-sdk>=1.20.0" \
+        "opentelemetry-exporter-gcp-trace>=1.6.0" \
         "pg8000>=1.30.0"
 
 # Copy project definitions, documentation, source code, and test fixtures
