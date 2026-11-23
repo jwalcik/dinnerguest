@@ -513,6 +513,8 @@ def update_event_menu_dish_adk(
     return {"error": f"Unsupported action '{action}'."}
 
 
+from dinnerguest.memory import _DEFAULT_COMPACTOR
+
 menu_agent = Agent(
     name="MenuAgent",
     model=os.getenv("GEN_MODEL", "gemini-3.8-flash"),
@@ -530,5 +532,6 @@ menu_agent = Agent(
         generate_grocery_list_for_menu_adk,
         update_event_menu_dish_adk,
     ],
+    before_model_callback=_DEFAULT_COMPACTOR.adk_before_model_compaction_callback,
 )
 

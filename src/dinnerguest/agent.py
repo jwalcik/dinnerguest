@@ -533,6 +533,7 @@ from dinnerguest.adk import Agent
 from dinnerguest.agents.menu_agent import menu_agent
 from dinnerguest.agents.on_hand_agent import on_hand_agent
 from dinnerguest.agents.vibe_agent import vibe_agent
+from dinnerguest.memory import _DEFAULT_COMPACTOR
 
 
 root_agent = Agent(
@@ -557,5 +558,6 @@ root_agent = Agent(
         generate_grocery_list_for_menu,
         update_event_menu_dish,
     ],
+    before_model_callback=_DEFAULT_COMPACTOR.adk_before_model_compaction_callback,
 )
 

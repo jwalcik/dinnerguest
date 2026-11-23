@@ -416,3 +416,25 @@ class EventMenuStore:
             return True
 
         return False
+
+    async def save_menu_async(
+        self,
+        name: str,
+        guest_count: int,
+        dishes: List[Dict[str, Any]],
+        theme: Optional[str] = None,
+        notes: Optional[str] = None,
+        auto_scale: bool = True,
+    ) -> EventMenu:
+        """Asynchronously saves and scales an event menu without blocking the event loop."""
+        import asyncio
+
+        return await asyncio.to_thread(
+            self.save_menu,
+            name=name,
+            guest_count=guest_count,
+            dishes=dishes,
+            theme=theme,
+            notes=notes,
+            auto_scale=auto_scale,
+        )

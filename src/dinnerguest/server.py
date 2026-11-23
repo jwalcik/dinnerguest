@@ -907,6 +907,36 @@ def _build_Explicit_tool_declarations(types_mod: Any) -> Any:
     return types_mod.Tool(function_declarations=decls)
 
 
+def _get_or_load_session(session_id: str) -> Dict[str, Any]:
+    """Retrieves an active session from memory or restores it from PersistentSessionStore (Firestore/disk)."""
+    if session_id in _SESSIONS:
+        return _SESSIONS[session_id]
+
+    from dinnerguest.memory import EventPlanningMemory, _DEFAULT_SESSION_STORE
+
+    persisted = _DEFAULT_SESSION_STORE.load_session(session_id)
+    if persisted:
+        session = {
+            "vibe_state": None,
+            "active_menu_name": persisted.get("active_menu_name"),
+            "menu_planning_state": persisted.get("menu_planning_state"),
+            "planning_memory": persisted.get("planning_memory") or EventPlanningMemory(),
+            "chat_history": list(persisted.get("chat_history") or []),
+            "turn_count": int(persisted.get("turn_count") or 0),
+        }
+    else:
+        session = {
+            "vibe_state": None,
+            "active_menu_name": None,
+            "menu_planning_state": None,
+            "planning_memory": EventPlanningMemory(),
+            "chat_history": [],
+            "turn_count": 0,
+        }
+    _SESSIONS[session_id] = session
+    return session
+
+
 def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Optional[Dict[str, Any]]:
     """Attempts to execute the agent turn using Gemini with tools via Google GenAI / Vertex AI.
 
@@ -935,6 +965,11 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         from dinnerguest.agents.menu_agent import MENU_AGENT_INSTRUCTION
         from dinnerguest.agents.on_hand_agent import ON_HAND_AGENT_INSTRUCTION
         from dinnerguest.agents.vibe_agent import VIBE_AGENT_INSTRUCTION
+        from dinnerguest.memory import (
+            EventPlanningMemory,
+            _DEFAULT_COMPACTOR,
+            _DEFAULT_CONTEXT_CACHE,
+        )
 
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
         configured_model = os.getenv("GEN_MODEL", "gemini-2.5-flash")
@@ -959,14 +994,20 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
         tool_map = {fn.__name__: fn for fn in available_tools}
         explicit_tool = _build_Explicit_tool_declarations(types)
 
-        session = _SESSIONS.setdefault(session_id, {
-            "vibe_state": None,
-            "active_menu_name": None,
-            "menu_planning_state": None,
-            "chat_history": [],
-            "turn_count": 0,
-        })
+        session = _get_or_load_session(session_id)
         active_menu = session.get("active_menu_name")
+        planning_mem = session.get("planning_memory")
+        if not isinstance(planning_mem, EventPlanningMemory):
+            planning_mem = EventPlanningMemory.from_dict(planning_mem if isinstance(planning_mem, dict) else None)
+            session["planning_memory"] = planning_mem
+
+        # Compact conversation history if over token/turn budget before building LLM context
+        compacted_dicts, planning_mem = _DEFAULT_COMPACTOR.compact_history(
+            session.get("chat_history") or [],
+            memory=planning_mem,
+        )
+        session["planning_memory"] = planning_mem
+
         sys_instruction = (
             f"{DINNERGUEST_INSTRUCTION}\n\n"
             f"### Specialized Sub-Agent Instructions\n"
@@ -979,22 +1020,43 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                 f"\n\n[Active Session Context: The user is currently working on the event menu '{active_menu}'. "
                 f"If they ask to replace a dish, add a course, remove a dish, change guest count, rename the event, or generate a grocery list, apply it to '{active_menu}'.]"
             )
+        mem_prompt_block = planning_mem.format_for_system_prompt()
+        if mem_prompt_block:
+            sys_instruction += f"\n\n{mem_prompt_block}"
 
-        history = list(session.get("chat_history") or [])
+        history = [
+            types.Content(role=t["role"], parts=[types.Part.from_text(text=t["text"])])
+            for t in compacted_dicts
+            if t.get("text")
+        ]
         chat = None
         response = None
         active_model_name = candidate_models[0]
 
         for model_candidate in candidate_models:
             try:
-                chat = client.chats.create(
-                    model=model_candidate,
-                    history=history,
-                    config=types.GenerateContentConfig(
+                cached_content_name = _DEFAULT_CONTEXT_CACHE.get_or_create_cache(
+                    client=client,
+                    model_name=model_candidate,
+                    system_instruction=sys_instruction,
+                    tools=[explicit_tool],
+                )
+                gen_cfg = (
+                    types.GenerateContentConfig(
+                        cached_content=cached_content_name,
+                        temperature=0.2,
+                    )
+                    if cached_content_name
+                    else types.GenerateContentConfig(
                         system_instruction=sys_instruction,
                         tools=[explicit_tool],
                         temperature=0.2,
-                    ),
+                    )
+                )
+                chat = client.chats.create(
+                    model=model_candidate,
+                    history=history,
+                    config=gen_cfg,
                 )
                 response = chat.send_message(user_msg)
                 active_model_name = model_candidate
@@ -1047,10 +1109,11 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
                     "args": call_args,
                     "result": tool_result,
                 })
+                compacted_tool_res = _DEFAULT_COMPACTOR.compact_tool_payload(call_name, tool_result)
                 tool_responses.append(
                     types.Part.from_function_response(
                         name=call_name,
-                        response={"result": tool_result},
+                        response={"result": compacted_tool_res},
                     )
                 )
 
@@ -1061,14 +1124,6 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
 
         reply_text = getattr(response, "text", "") or ""
         if reply_text.strip():
-            try:
-                clean_history = list(session.get("chat_history") or [])
-                clean_history.append(types.Content(role="user", parts=[types.Part.from_text(text=user_msg)]))
-                clean_history.append(types.Content(role="model", parts=[types.Part.from_text(text=reply_text.strip())]))
-                session["chat_history"] = clean_history[-20:]
-            except Exception:
-                pass
-
             out_payload: Dict[str, Any] = {
                 "reply": reply_text.strip(),
                 "session_id": session_id,
@@ -1086,6 +1141,8 @@ def _try_gemini_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Opt
 
 
 def _execute_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[str, Any]:
+    from dinnerguest.memory import schedule_async_memory_compaction
+
     _RECORDED_SPANS.set([])
     set_trace_context(trace_id=trace_id, session_id=session_id)
     turn_t0 = time.perf_counter()
@@ -1109,6 +1166,22 @@ def _execute_agent_turn(user_msg: str, session_id: str, trace_id: str) -> Dict[s
         if result is None:
             # 1. Deterministic Agent Pipeline Fallback
             result = _execute_deterministic_agent_turn(user_msg, session_id, trace_id)
+
+        # Record turn into session history and trigger non-blocking async memory compaction & Firestore persistence
+        session = _get_or_load_session(session_id)
+        reply_str = result.get("reply", "")
+        history_list = list(session.get("chat_history") or [])
+        history_list.append({"role": "user", "text": redact_pii(user_msg)})
+        if reply_str:
+            history_list.append({"role": "model", "text": redact_pii(reply_str)})
+        session["chat_history"] = history_list
+
+        active_menu_data = result.get("data") if isinstance(result.get("data"), dict) and "dishes" in result.get("data", {}) else None
+        schedule_async_memory_compaction(
+            session_id=session_id,
+            session_data=session,
+            active_menu_data=active_menu_data,
+        )
 
         # Emit structured Intent vs. Outcome logs and child spans for recorded tool events
         current_thought = "Execute culinary tool"
